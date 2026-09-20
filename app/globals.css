@@ -45,6 +45,40 @@
     animation: fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
+  /*
+   * ROOT CAUSE of the "blank /course sections" bug (a second, unrelated
+   * issue found after the CSP nonce fix landed and hydration started
+   * working again): this @keyframes definition also exists in
+   * tailwind.config.ts's theme.extend.keyframes/animation as "fade-up", but
+   * that copy only ever reaches the compiled CSS if some className in the
+   * scanned source actually uses the Tailwind utility it powers
+   * (`animate-fade-up`) — nothing in this codebase does; Reveal.tsx applies
+   * the "reveal-visible" class defined above instead, which references the
+   * raw `fade-up` animation name directly. Tailwind's JIT content-scanner
+   * has no way to know a hand-written CSS rule needs a keyframes block it
+   * didn't itself generate, so it never emitted one: the production
+   * stylesheet shipped `.reveal-visible{animation:fade-up ...}` with no
+   * matching `@keyframes fade-up` anywhere. An animation with an
+   * unresolvable name is simply a no-op per the CSS spec — Reveal.tsx's
+   * IntersectionObserver was firing correctly, "reveal-visible" was being
+   * added to the right elements at the right time, but with no keyframes
+   * to run, opacity never left the 0 that ".reveal" sets, so the content
+   * stayed invisible even though everything upstream of the animation
+   * (SSR, hydration, JS, the CSP nonce) was working. Defining it here,
+   * next to the only rule that references it, makes it always present
+   * regardless of what Tailwind utilities happen to be used elsewhere.
+   */
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .reveal {
       opacity: 1;

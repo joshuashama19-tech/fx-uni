@@ -51,10 +51,26 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         >
           Skip to main content
         </a>
+        {/*
+          Defense-in-depth for components/ui/Reveal.tsx: it renders at
+          opacity:0 until client JS confirms the element via
+          IntersectionObserver, so content it wraps is only ever made
+          visible by hydration completing successfully. That's exactly
+          the failure mode this app just hit in production (a CSP nonce
+          bug briefly broke hydration sitewide) — nothing about Reveal
+          itself caused it, but nothing about Reveal protected against it
+          either. <noscript> only ever renders when JavaScript is
+          disabled entirely (a real hydration failure is invisible to
+          CSS, so this can't catch every case), but it's a real, free
+          safety net for that specific case: force every .reveal element
+          fully visible rather than leaving it permanently blank.
+        */}
+        <noscript>
+          <style>{`.reveal { opacity: 1 !important; animation: none !important; }`}</style>
+        </noscript>
         {children}
       </body>
     </html>
   );
 }
-
 
