@@ -6,7 +6,8 @@ import { createClient } from "@/lib/supabase/server";
 import { checkCourseAccess } from "@/lib/access";
 import { signUpAction, signInAction } from "@/lib/auth/actions";
 import { initializeCheckoutAction } from "@/lib/payments/checkout-action";
-import { pricing, siteConfig } from "@/lib/course-data";
+import { siteConfig } from "@/lib/course-data";
+import { getSiteContent } from "@/lib/content";
 import { Container } from "@/components/ui/Container";
 import { IconArrowRight, IconAlert, IconMail } from "@/components/icons";
 
@@ -57,6 +58,7 @@ export default async function GetStartedPage({
   }
 
   const price = formatPrice();
+  const content = await getSiteContent();
   const next = params.next && params.next.startsWith("/") && !params.next.startsWith("//") ? params.next : "/learn";
 
   return (
@@ -97,7 +99,7 @@ export default async function GetStartedPage({
           ) : null}
 
           {user ? (
-            <CheckoutPanel email={user.email ?? ""} price={price} />
+            <CheckoutPanel email={user.email ?? ""} price={price} billingNote={content.pricing_billing_note} />
           ) : (
             <AuthPanel mode={params.mode === "login" ? "login" : "signup"} next={next} />
           )}
@@ -136,7 +138,15 @@ function StatusPanel({
   );
 }
 
-function CheckoutPanel({ email, price }: { email: string; price: string | null }) {
+function CheckoutPanel({
+  email,
+  price,
+  billingNote,
+}: {
+  email: string;
+  price: string | null;
+  billingNote: string;
+}) {
   return (
     <div>
       <p className="text-sm text-ink-500">Signed in as</p>
@@ -145,7 +155,7 @@ function CheckoutPanel({ email, price }: { email: string; price: string | null }
       <div className="mb-6 rounded-xl border border-ink-100 bg-ink-50 p-4">
         <p className="text-sm text-ink-500">{siteConfig.name} — full course</p>
         <p className="mt-1 text-2xl font-semibold text-ink-950">{price ?? "Confirmed at checkout"}</p>
-        <p className="mt-1 text-xs text-ink-500">{pricing.billingNote}</p>
+        <p className="mt-1 text-xs text-ink-500">{billingNote}</p>
       </div>
 
       <form action={initializeCheckoutAction}>

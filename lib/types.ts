@@ -51,3 +51,38 @@ export interface PaymentEventRow {
   raw_payload: Record<string, unknown>;
   received_at: string;
 }
+
+// Rows for the tables added in supabase/migrations/0005_admin_cms.sql.
+
+export interface TestimonialRow {
+  id: string;
+  student_name: string;
+  role_title: string | null;
+  quote: string;
+  display_order: number;
+  is_active: boolean;
+  is_placeholder: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export interface FaqRow {
+  id: string;
+  question: string;
+  answer: string;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export interface SiteContentRow {
+  key: string;
+  value: string;
+  updated_at: string;
+  updated_by: string | null;
+}

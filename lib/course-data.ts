@@ -552,19 +552,21 @@ export const opportunityCost = {
     "You can keep searching for random Forex information, or you can follow a structured learning path built to take you from beginner to intermediate in order.",
 };
 
+// The displayed price and billing note are NOT defined here — they come from
+// lib/content.ts's getDisplayPrice() (derived from the same env vars that
+// drive the actual Paystack charge, so display and charge can never drift
+// apart) and getSiteContent() (admin-editable via /admin/content) via
+// components/PricingSection.tsx. There is deliberately no "original price"
+// / discount-badge field: this course has one real price, and a struck-
+// through anchor price would be a fabricated discount claim.
 export const pricing = {
   eyebrow: "Enrollment",
   headline: "One course. One price. Full access.",
   subheadline:
     "Everything from the fundamentals to a full trading plan, in one structured course — here's exactly what's included.",
-  currency: "$", // PLACEHOLDER
-  price: "XX", // PLACEHOLDER — replace with final price
-  originalPrice: "XX", // PLACEHOLDER — replace with anchor price, or remove if not used
-  discountLabel: "", // PLACEHOLDER — e.g. "Save 30%" or "$XX off". Leave "" to hide the badge; never invent a real one.
-  billingNote: "One-time payment", // PLACEHOLDER
   couponPlaceholder: "Have a coupon code?",
   ctaLabel: "Get Course Access",
-  ctaHref: "/get-started", // Phase 2 (signup + checkout) will live at this route
+  ctaHref: "/get-started",
   features: [
     "All 10 modules — fundamentals through to a full trading plan",
     "Practical exercises, checklists, and worked examples in every module",
@@ -572,7 +574,7 @@ export const pricing = {
     "Secure, personal course access on mobile and desktop",
     "Bonus resources, added here once finalized",
   ],
-  paymentNote: "Payment methods will be confirmed at checkout.", // PLACEHOLDER
+  paymentNote: "Payments are processed securely through Paystack.",
 };
 
 export const howItWorks = {
@@ -597,73 +599,13 @@ export const howItWorks = {
   ],
 };
 
+// FAQ ITEMS are no longer defined here: they're admin-managed in Supabase
+// (supabase/migrations/0005_admin_cms.sql, managed at /admin/faqs) and
+// fetched at request time by components/FAQSection.tsx. Only the section's
+// heading copy (design content) stays here.
 export const faq = {
   eyebrow: "Frequently Asked Questions",
   headline: "Common questions, answered honestly.",
-  items: [
-    {
-      question: "I'm completely new to this. Can I actually understand it?",
-      answer:
-        "Yes — the course is written specifically for people with zero background. Module 1 starts with basic terminology and builds up in order, so nothing assumes knowledge you don't have yet.",
-    },
-    {
-      question: "Do I need a lot of money to start?",
-      answer:
-        "No. This is an educational course, not a trading fund — you're paying for the course itself, not to open a trading account. What you do with your own money afterward, and how much, is entirely your decision.",
-    },
-    {
-      question: "Do I need previous trading experience?",
-      answer:
-        "No previous experience is required. The course is built to take you from zero to a structured, intermediate understanding.",
-    },
-    {
-      question: "Can I learn using my phone?",
-      answer: "Yes — course access is designed to work well on mobile, tablet, and desktop.",
-    },
-    {
-      question: "Is this a signals service?",
-      answer:
-        "No. This is an educational course, not a signals service. The goal is to teach you to read and understand the market yourself, not to hand you trades to copy.",
-    },
-    {
-      question: "Is this mentorship?",
-      answer:
-        "No. This is a self-paced course, not one-on-one mentorship or coaching. It's built so you can learn the material in order, at your own pace, without needing live sessions with an instructor.",
-    },
-    {
-      question: "Will this guarantee profits?",
-      answer:
-        "No course or educational program can guarantee trading profits, and we won't claim otherwise. Trading involves substantial risk. This course is designed to build your understanding, skills, and process — not to promise results.",
-    },
-    {
-      question: "Why should I buy this instead of just watching YouTube?",
-      answer:
-        "You can absolutely learn from free content, and some of it is good. What free content rarely offers is order — a single path that takes you from fundamentals to a full trading plan without contradictions or gaps. That structure, plus the built-in exercises and checklists, is what you're paying for.",
-    },
-    {
-      question: "What exactly do I receive after payment?",
-      answer:
-        "Secure, personal access to the full 10-module course, including all lessons, examples, exercises, checklists, the backtesting walkthrough, and the trading-journal framework.",
-    },
-    {
-      question: "How quickly can I go through the course?",
-      answer:
-        "That depends on your pace — the material is self-paced, so you can move quickly through fundamentals or take your time on modules like risk management and psychology. Most beginners benefit from not rushing the earlier modules.",
-    },
-    {
-      question: "How do I access the course?",
-      answer: "After your payment is confirmed, you'll get secure, personal access to the course through your account.",
-    },
-    {
-      question: "Is this financial advice?",
-      answer:
-        "No. This is an educational course designed to teach you how the Forex market works. Nothing in this course is personalized financial or investment advice.",
-    },
-    {
-      question: "What payment methods will be available?",
-      answer: "Payment options will be shown at checkout once payment processing is finalized.", // PLACEHOLDER
-    },
-  ],
 };
 
 // Social proof (section #16). Pairs the genuine student-count claim with
@@ -692,54 +634,17 @@ export const trust = {
 };
 
 // Testimonials (section #17) — a separate section from the trust/social
-// proof block above. ONLY genuine, supplied testimonials belong here.
-// Until real ones are provided, every entry below is a clearly labeled
-// placeholder — no invented names, photos, quotes, results, or locations.
-// `verified` must only ever be set true for a genuinely verified student.
-export type Testimonial = {
-  name: string;
-  photo: string | null;
-  location: string;
-  quote: string;
-  date: string;
-  verified: boolean;
-  placeholder?: boolean;
-};
-
+// proof block above. The individual testimonial ITEMS are no longer defined
+// here: they're admin-managed in Supabase (supabase/migrations/0005_admin_cms.sql,
+// managed at /admin/testimonials) and fetched at request time by
+// components/TestimonialsSection.tsx, which renders nothing at all until a
+// genuine, published testimonial exists — never a placeholder shown to
+// visitors as real. Only the section's heading copy (design content, not
+// data) stays here, same as every other section heading in this file.
 export const testimonials = {
   eyebrow: "Testimonials",
   headline: "What students say.",
-  subheadline:
-    "Genuine student testimonials will appear here once supplied. Nothing below is a real name, photo, or quote — each card is a clearly marked placeholder showing how real testimonials will be presented.",
-  items: [
-    {
-      name: "Student name pending",
-      photo: null,
-      location: "Location pending",
-      quote: "A genuine testimonial from a real student will go here once it's supplied.",
-      date: "Date pending",
-      verified: false,
-      placeholder: true,
-    },
-    {
-      name: "Student name pending",
-      photo: null,
-      location: "Location pending",
-      quote: "A genuine testimonial from a real student will go here once it's supplied.",
-      date: "Date pending",
-      verified: false,
-      placeholder: true,
-    },
-    {
-      name: "Student name pending",
-      photo: null,
-      location: "Location pending",
-      quote: "A genuine testimonial from a real student will go here once it's supplied.",
-      date: "Date pending",
-      verified: false,
-      placeholder: true,
-    },
-  ] satisfies Testimonial[],
+  subheadline: "Real feedback from students who have gone through the course.",
 };
 
 export const riskDisclaimer = {
@@ -751,11 +656,11 @@ export const riskDisclaimer = {
   ],
 };
 
+// Headline/subheadline/button label are admin-editable (site_content table,
+// /admin/content) via lib/content.ts's getSiteContent() — the values below
+// are only its hardcoded fallback defaults (SITE_CONTENT_DEFAULTS), kept in
+// sync by hand. ctaHref is layout, not copy, so it stays here.
 export const finalCta = {
-  headline: "Start learning Forex the structured way.",
-  subheadline:
-    "Understand the market, build real skills, and develop a disciplined approach — one module at a time.",
-  ctaLabel: "Get Course Access",
   ctaHref: "#pricing",
 };
 

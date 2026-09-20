@@ -1,60 +1,70 @@
-import Image from "next/image";
-import { testimonials } from "@/lib/course-data";
+import { createClient } from "@/lib/supabase/server";
+import type { TestimonialRow } from "@/lib/types";
+import { testimonials as testimonialsCopy } from "@/lib/course-data";
 import { Container } from "./ui/Container";
 import { SectionHeading } from "./ui/SectionHeading";
 import { Reveal } from "./ui/Reveal";
-import { IconCheckCircle } from "./icons";
 
-export function TestimonialsSection() {
+/**
+ * Testimonial ITEMS are admin-managed (supabase/migrations/0005_admin_cms.sql
+ * + app/admin/testimonials) — the section headline/subheadline stay as
+ * design copy in lib/course-data.ts, same as every other section heading on
+ * the page.
+ *
+ * The query below is the public, RLS-scoped client (lib/supabase/server.ts),
+ * not the service-role admin client — the database itself enforces that only
+ * `is_active = true and is_placeholder = false` rows are readable here (see
+ * the testimonials_select_published policy), so this component can't
+ * accidentally leak a draft or placeholder even if this code had a bug.
+ *
+ * Per spec: never invent or auto-publish testimonials. If no genuine,
+ * published testimonial exists yet, this renders nothing at all — no
+ * placeholder cards — rather than showing fake social proof.
+ */
+async function getPublishedTestimonials(): Promise<TestimonialRow[]> {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("testimonials")
+      .select("*")
+      .order("display_order", { ascending: true });
+    return data ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function TestimonialsSection() {
+  const items = await getPublishedTestimonials();
+  if (items.length === 0) return null;
+
   return (
     <section id="testimonials" className="bg-white py-20 sm:py-24">
       <Container>
         <SectionHeading
-          eyebrow={testimonials.eyebrow}
-          headline={testimonials.headline}
-          subheadline={testimonials.subheadline}
+          eyebrow={testimonialsCopy.eyebrow}
+          headline={testimonialsCopy.headline}
+          subheadline={testimonialsCopy.subheadline}
         />
 
         <div className="mt-14 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {testimonials.items.map((t, i) => (
+          {items.map((t, i) => (
             <Reveal
-              key={`${t.name}-${i}`}
+              key={t.id}
               delay={i * 80}
               className="relative flex h-full flex-col rounded-2xl border border-ink-100 bg-white p-6 shadow-card"
             >
-              {t.placeholder ? (
-                <span className="absolute right-4 top-4 rounded-full bg-ink-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink-500">
-                  Placeholder
-                </span>
-              ) : null}
-
               <div className="flex items-center gap-3">
-                {t.photo ? (
-                  <Image
-                    src={t.photo}
-                    alt={t.name}
-                    width={44}
-                    height={44}
-                    className="h-11 w-11 shrink-0 rounded-full object-cover"
-                  />
-                ) : (
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-ink-100 text-sm font-semibold text-ink-400">
-                    ?
-                  </span>
-                )}
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-100 text-sm font-semibold text-brand-700">
+                  {t.student_name.charAt(0).toUpperCase()}
+                </span>
                 <div>
-                  <p className="flex items-center gap-1.5 text-sm font-semibold text-ink-900">
-                    {t.name}
-                    {t.verified ? (
-                      <IconCheckCircle className="h-3.5 w-3.5 shrink-0 text-brand-600" aria-label="Verified student" />
-                    ) : null}
-                  </p>
-                  <p className="text-xs text-ink-400">{t.location}</p>
+                  <p className="text-sm font-semibold text-ink-900">{t.student_name}</p>
+                  {t.role_title ? <p className="text-xs text-ink-400">{t.role_title}</p> : null}
                 </div>
               </div>
 
               <p className="mt-4 flex-1 text-sm leading-relaxed text-ink-600">&ldquo;{t.quote}&rdquo;</p>
-              <p className="mt-4 text-xs text-ink-400">{t.date}</p>
             </Reveal>
           ))}
         </div>
