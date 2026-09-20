@@ -18,7 +18,7 @@ export async function middleware(request: NextRequest) {
   // mutating request.headers directly, since request headers can carry an
   // "immutable" guard that throws on .set() in some runtimes. See
   // lib/security-headers.ts for the full policy and reasoning.
-  const nonce = crypto.randomUUID();
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const csp = buildContentSecurityPolicy(nonce, isProduction);
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
@@ -49,3 +49,4 @@ export const config = {
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
+
