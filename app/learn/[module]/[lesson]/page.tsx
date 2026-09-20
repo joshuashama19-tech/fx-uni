@@ -6,6 +6,8 @@ import { requireCourseAccess } from "@/lib/access";
 import { isLessonCompleted, markLessonCompleteAction } from "@/lib/progress/actions";
 import { RecordLessonView } from "@/components/learn/RecordLessonView";
 import { MarkdownBlocks } from "@/lib/markdown/render";
+import { LessonInteractions } from "@/components/course/interactive/LessonInteractions";
+import { getLessonInteractions } from "@/lib/interactions";
 import { IconCheckCircle } from "@/components/icons";
 
 export async function generateMetadata({
@@ -52,6 +54,8 @@ export default async function LessonPage({
       <div className="mt-8 max-w-[70ch]">
         <MarkdownBlocks blocks={lesson.blocks} />
       </div>
+
+      <LessonInteractions interactions={getLessonInteractions(moduleSlug, lessonSlug)} />
 
       <div className="mt-8 max-w-[70ch] border-t border-ink-100 pt-6">
         {completed ? (

@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getModule, listModules, lessonKey, DOC_LABELS, type ModuleDocKind } from "@/lib/course-content";
+import { getModule, listModules, lessonKey } from "@/lib/course-content";
+import { splitModuleWrapUp } from "@/lib/course-content-activities";
 import { requireCourseAccess } from "@/lib/access";
 import { getStudentProgress } from "@/lib/progress/actions";
+import { getModuleActivityStatus } from "@/lib/progress/activity-actions";
 import { MarkdownBlocks } from "@/lib/markdown/render";
-import { IconArrowRight, IconCheck, IconCheckCircle } from "@/components/icons";
+import { ModuleActivityCard } from "@/components/course/ModuleActivityCard";
+import { ModuleCompletionPanel } from "@/components/course/ModuleCompletionPanel";
+import { IconArrowRight, IconCheckCircle } from "@/components/icons";
 
 export async function generateMetadata({
   params,
@@ -17,18 +21,23 @@ export async function generateMetadata({
   return { title: mod ? mod.title : "Module" };
 }
 
-const DOC_KINDS: ModuleDocKind[] = ["exercises", "quiz", "answer-key", "checklist"];
-
 export default async function ModuleOverviewPage({ params }: { params: Promise<{ module: string }> }) {
   const { module: moduleSlug } = await params;
   const mod = getModule(moduleSlug);
   if (!mod) notFound();
 
   const { user } = await requireCourseAccess();
-  const progress = await getStudentProgress(user.id);
+  const [progress, activity] = await Promise.all([
+    getStudentProgress(user.id),
+    getModuleActivityStatus(user.id, moduleSlug),
+  ]);
 
   const modules = listModules();
   const modIndex = modules.findIndex((m) => m.slug === moduleSlug);
+  const nextModule = modIndex >= 0 && modIndex < modules.length - 1 ? modules[modIndex + 1] : null;
+
+  const lessonsCompletedInModule = mod.lessons.filter((l) => progress.completedKeys.has(lessonKey(mod.slug, l.slug))).length;
+  const { keepSections, beforeYouMoveOn } = splitModuleWrapUp(mod);
 
   return (
     <div>
@@ -56,7 +65,12 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
       ) : null}
 
       <section className="mt-10">
-        <h2 className="text-lg font-semibold text-ink-950">Lessons</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-ink-950">Lessons</h2>
+          <span className="text-sm text-ink-500">
+            {lessonsCompletedInModule} / {mod.lessons.length}
+          </span>
+        </div>
         <ol className="mt-4 space-y-2">
           {mod.lessons.map((lesson) => {
             const completed = progress.completedKeys.has(lessonKey(mod.slug, lesson.slug));
@@ -83,29 +97,59 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
       </section>
 
       <section className="mt-10">
-        <h2 className="text-lg font-semibold text-ink-950">Practice &amp; Review</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {DOC_KINDS.map((kind) => (
-            <Link
-              key={kind}
-              href={`/learn/${mod.slug}/${kind}`}
-              className="flex items-center gap-3 rounded-lg border border-ink-100 px-4 py-3.5 text-sm font-medium text-ink-800 transition-colors hover:border-brand-200 hover:bg-brand-50/30"
-            >
-              <IconCheck className="h-4 w-4 flex-none text-brand-600" />
-              {DOC_LABELS[kind]}
-            </Link>
-          ))}
+        <h2 className="text-lg font-semibold text-ink-950">Module Activities</h2>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <ModuleActivityCard
+            href={`/learn/${mod.slug}/exercises`}
+            title="Exercises"
+            description="Applied practice for this module"
+            status={{ complete: activity.exercisesComplete }}
+          />
+          <ModuleActivityCard
+            href={`/learn/${mod.slug}/quiz`}
+            title="Knowledge Check"
+            description="Interactive checkpoint quiz"
+            status={
+              activity.quizSubmitted
+                ? { complete: true, label: `${activity.quizScore ?? 0}/${activity.quizTotal ?? 0}` }
+                : null
+            }
+          />
+          <ModuleActivityCard
+            href={`/learn/${mod.slug}/checklist`}
+            title="Checklist"
+            description="Confirm you're ready to continue"
+            status={{
+              complete: activity.checklistComplete,
+              label: activity.checklistComplete ? undefined : `${activity.checklistCheckedCount}/${activity.checklistTotalItems}`,
+            }}
+          />
         </div>
       </section>
 
-      {mod.wrapUpSections.map((section) => (
+      {keepSections.map((section) => (
         <section key={section.title} className="mt-10">
           <h2 className="text-lg font-semibold text-ink-950">{section.title}</h2>
           <MarkdownBlocks blocks={section.blocks} />
         </section>
       ))}
 
-      <nav className="mt-12 flex items-center justify-between border-t border-ink-100 pt-6 text-sm">
+      <ModuleCompletionPanel
+        lessonsCompleted={lessonsCompletedInModule}
+        lessonsTotal={mod.lessons.length}
+        exercisesComplete={activity.exercisesComplete}
+        quizSubmitted={activity.quizSubmitted}
+        quizScore={activity.quizScore}
+        quizTotal={activity.quizTotal}
+        checklistComplete={activity.checklistComplete}
+        checklistCheckedCount={activity.checklistCheckedCount}
+        checklistTotalItems={activity.checklistTotalItems}
+        beforeYouMoveOn={beforeYouMoveOn}
+        nextModuleHref={nextModule ? `/learn/${nextModule.slug}` : null}
+        nextModuleTitle={nextModule ? `Module ${nextModule.order}` : null}
+      />
+
+      <nav className="mt-8 flex items-center justify-between border-t border-ink-100 pt-6 text-sm">
         {modIndex > 0 ? (
           <Link href={`/learn/${modules[modIndex - 1].slug}`} className="text-ink-600 hover:text-ink-900">
             ← {modules[modIndex - 1].title}
@@ -113,9 +157,9 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
         ) : (
           <span />
         )}
-        {modIndex < modules.length - 1 ? (
-          <Link href={`/learn/${modules[modIndex + 1].slug}`} className="font-medium text-brand-600 hover:text-brand-700">
-            {modules[modIndex + 1].title} →
+        {nextModule ? (
+          <Link href={`/learn/${nextModule.slug}`} className="font-medium text-brand-600 hover:text-brand-700">
+            {nextModule.title} →
           </Link>
         ) : (
           <span />

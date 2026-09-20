@@ -7,7 +7,7 @@ import type { Block, InlineNode, CalloutKind } from "./types";
 // the site: light background, generous spacing, no dark/glassmorphism
 // styling.
 
-function renderInline(nodes: InlineNode[], keyPrefix = "n"): ReactNode[] {
+export function renderInline(nodes: InlineNode[], keyPrefix = "n"): ReactNode[] {
   return nodes.map((node, idx) => {
     const key = `${keyPrefix}-${idx}`;
     switch (node.type) {
