@@ -195,6 +195,75 @@ export function listModules(): { slug: string; order: number; title: string; les
     });
 }
 
+/**
+ * The total lesson count across every module (135 as of this course's
+ * current content), derived live from the same markdown source everything
+ * else here reads — never hard-coded, so it can't drift if a lesson is ever
+ * added or removed. Used for course-progress percentage calculations
+ * (lib/progress/actions.ts) instead of a literal number.
+ */
+export function getTotalLessonCount(): number {
+  return listModules().reduce((sum, m) => sum + m.lessonCount, 0);
+}
+
+export interface LessonRef {
+  moduleSlug: string;
+  moduleOrder: number;
+  moduleTitle: string;
+  lessonSlug: string;
+  lessonOrder: number;
+  lessonTitle: string;
+}
+
+/**
+ * Resolves a (possibly stale or absent) module/lesson slug pair to a real,
+ * currently-existing lesson — used for "Continue Learning" (lib/progress).
+ * If the given slugs don't name a real lesson (never viewed one yet, or the
+ * content changed since it was recorded), falls back to the very first
+ * lesson of the first module, so there's always a safe destination.
+ * Returns null only if the course has no lessons at all.
+ */
+export function resolveLessonRef(
+  moduleSlug: string | null | undefined,
+  lessonSlug: string | null | undefined
+): LessonRef | null {
+  if (moduleSlug && lessonSlug) {
+    const found = getLesson(moduleSlug, lessonSlug);
+    if (found) {
+      return {
+        moduleSlug,
+        moduleOrder: found.module.order,
+        moduleTitle: found.module.title,
+        lessonSlug,
+        lessonOrder: found.lesson.order,
+        lessonTitle: found.lesson.title,
+      };
+    }
+  }
+
+  for (const m of listModules()) {
+    const mod = getModule(m.slug);
+    const first = mod?.lessons[0];
+    if (mod && first) {
+      return {
+        moduleSlug: mod.slug,
+        moduleOrder: mod.order,
+        moduleTitle: mod.title,
+        lessonSlug: first.slug,
+        lessonOrder: first.order,
+        lessonTitle: first.title,
+      };
+    }
+  }
+
+  return null;
+}
+
+/** "<moduleSlug>/<lessonSlug>" — the key shape used everywhere a lesson needs a single string identity (course_progress rows, completedKeys sets). */
+export function lessonKey(moduleSlug: string, lessonSlug: string): string {
+  return `${moduleSlug}/${lessonSlug}`;
+}
+
 export function getLesson(
   moduleSlug: string,
   lessonSlug: string

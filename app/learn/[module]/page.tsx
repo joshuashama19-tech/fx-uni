@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getModule, listModules, DOC_LABELS, type ModuleDocKind } from "@/lib/course-content";
+import { getModule, listModules, lessonKey, DOC_LABELS, type ModuleDocKind } from "@/lib/course-content";
+import { requireCourseAccess } from "@/lib/access";
+import { getStudentProgress } from "@/lib/progress/actions";
 import { MarkdownBlocks } from "@/lib/markdown/render";
-import { IconArrowRight, IconCheck } from "@/components/icons";
+import { IconArrowRight, IconCheck, IconCheckCircle } from "@/components/icons";
 
 export async function generateMetadata({
   params,
@@ -21,6 +23,9 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
   const { module: moduleSlug } = await params;
   const mod = getModule(moduleSlug);
   if (!mod) notFound();
+
+  const { user } = await requireCourseAccess();
+  const progress = await getStudentProgress(user.id);
 
   const modules = listModules();
   const modIndex = modules.findIndex((m) => m.slug === moduleSlug);
@@ -53,20 +58,27 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
       <section className="mt-10">
         <h2 className="text-lg font-semibold text-ink-950">Lessons</h2>
         <ol className="mt-4 space-y-2">
-          {mod.lessons.map((lesson) => (
-            <li key={lesson.slug}>
-              <Link
-                href={`/learn/${mod.slug}/${lesson.slug}`}
-                className="flex items-center justify-between gap-4 rounded-lg border border-ink-100 px-4 py-3 transition-colors hover:border-brand-200 hover:bg-brand-50/30"
-              >
-                <span className="text-sm text-ink-800">
-                  <span className="mr-2 text-ink-400">{lesson.order}.</span>
-                  {lesson.title}
-                </span>
-                <IconArrowRight className="h-4 w-4 flex-none text-ink-400" />
-              </Link>
-            </li>
-          ))}
+          {mod.lessons.map((lesson) => {
+            const completed = progress.completedKeys.has(lessonKey(mod.slug, lesson.slug));
+            return (
+              <li key={lesson.slug}>
+                <Link
+                  href={`/learn/${mod.slug}/${lesson.slug}`}
+                  className="flex items-center justify-between gap-4 rounded-lg border border-ink-100 px-4 py-3 transition-colors hover:border-brand-200 hover:bg-brand-50/30"
+                >
+                  <span className="flex items-center gap-2 text-sm text-ink-800">
+                    {completed ? (
+                      <IconCheckCircle className="h-4 w-4 flex-none text-brand-600" aria-label="Completed" />
+                    ) : (
+                      <span className="w-4 flex-none text-ink-400">{lesson.order}.</span>
+                    )}
+                    {lesson.title}
+                  </span>
+                  <IconArrowRight className="h-4 w-4 flex-none text-ink-400" />
+                </Link>
+              </li>
+            );
+          })}
         </ol>
       </section>
 

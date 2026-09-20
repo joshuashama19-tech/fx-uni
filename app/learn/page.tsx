@@ -1,12 +1,22 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { listModules } from "@/lib/course-content";
+import { requireCourseAccess } from "@/lib/access";
+import { getStudentProgress } from "@/lib/progress/actions";
+import { ContinueLearningCard } from "@/components/learn/ContinueLearningCard";
+import { ProgressSummary } from "@/components/learn/ProgressSummary";
 import { IconArrowRight } from "@/components/icons";
 
 export const metadata: Metadata = { title: "Course" };
 
-export default function LearnDashboardPage() {
+export default async function LearnDashboardPage() {
+  // Re-checked independently of the layout, same principle used everywhere
+  // else in this codebase — this page never trusts that requireCourseAccess()
+  // already ran upstream, and it needs `user.id` for the progress lookup
+  // regardless.
+  const { user } = await requireCourseAccess();
   const modules = listModules();
+  const progress = await getStudentProgress(user.id);
 
   return (
     <div>
@@ -18,6 +28,15 @@ export default function LearnDashboardPage() {
         Ten modules, in order. Each module includes lessons, exercises, a quiz with an answer key, and a
         completion checklist.
       </p>
+
+      <div className="mt-8 grid gap-4 sm:grid-cols-2">
+        {progress.continueTo ? <ContinueLearningCard target={progress.continueTo} /> : null}
+        <ProgressSummary
+          completedCount={progress.completedCount}
+          totalCount={progress.totalCount}
+          percentage={progress.percentage}
+        />
+      </div>
 
       <ol className="mt-8 space-y-3">
         {modules.map((m) => (
