@@ -33,6 +33,8 @@ export const metadata: Metadata = {
   },
 };
 
+export const dynamic = "force-dynamic";
+
 export const viewport: Viewport = {
   themeColor: "#0a0a0a",
   width: "device-width",
@@ -54,3 +56,5 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
+
+
