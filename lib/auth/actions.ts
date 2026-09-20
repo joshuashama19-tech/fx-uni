@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/lib/rate-limit";
+import { checkCourseAccess } from "@/lib/access";
 
 // Server Actions backing every auth form (/get-started, /login,
 // /forgot-password, /reset-password). Plain <form action={...}> submissions
@@ -36,6 +37,11 @@ function sanitizeNextPath(next: string | null | undefined, fallback: string): st
 function redirectWithError(path: string, error: string, extra?: Record<string, string>): never {
   const params = new URLSearchParams({ error, ...extra });
   redirect(`${path}?${params.toString()}`);
+}
+
+/** True for "/learn" and any path under it — the only destinations that actually require course_access. */
+function isLearnPath(path: string): boolean {
+  return path === "/learn" || path.startsWith("/learn/");
 }
 
 export async function signUpAction(formData: FormData): Promise<void> {
@@ -116,13 +122,26 @@ export async function signInAction(formData: FormData): Promise<void> {
     redirectWithError(redirectPath, "Incorrect email or password.", { mode: "login", next });
   }
 
+  // Being authenticated is never enough on its own to reach /learn — only
+  // an active course_access row is (checkCourseAccess() / requireCourseAccess()
+  // in lib/access.ts is still the one source of truth this reads, and
+  // /learn's own layout re-checks it independently regardless of what
+  // happens here). This check only applies when `next` actually targets
+  // /learn: a login that's returning the user somewhere else entirely (e.g.
+  // /account, which doesn't require payment) still honors that destination
+  // as before, exactly like it did prior to this check existing.
+  if (isLearnPath(next)) {
+    const access = await checkCourseAccess();
+    redirect(access.authorized ? next : "/get-started");
+  }
+
   redirect(next);
 }
 
 export async function signOutAction(): Promise<void> {
   const supabase = await createClient();
   await supabase.auth.signOut();
-  redirect("/");
+  redirect("/login");
 }
 
 export async function requestPasswordResetAction(formData: FormData): Promise<void> {
