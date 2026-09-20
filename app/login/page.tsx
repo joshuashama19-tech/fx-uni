@@ -40,6 +40,10 @@ export default async function LoginPage({
             <p className="mb-5 rounded-lg bg-ink-50 px-4 py-3 text-sm text-ink-700">
               Your password has been updated. Log in with your new password.
             </p>
+          ) : params.status === "email-confirmed" ? (
+            <p className="mb-5 rounded-lg bg-ink-50 px-4 py-3 text-sm text-ink-700">
+              Your email is confirmed. Log in to continue to payment and course access.
+            </p>
           ) : null}
           {params.error ? (
             <p className="mb-5 rounded-lg bg-brand-50 px-4 py-3 text-sm text-brand-700">{params.error}</p>
