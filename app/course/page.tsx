@@ -1,5 +1,6 @@
 import { Hero } from "@/components/Hero";
 import { TrustSection } from "@/components/TrustSection";
+import { SocialProofSection } from "@/components/SocialProofSection";
 import { WhyStructuredSection } from "@/components/WhyStructuredSection";
 import { CurriculumSection } from "@/components/CurriculumSection";
 import { CoursePreviewSection } from "@/components/CoursePreviewSection";
@@ -9,11 +10,13 @@ import { PricingSection } from "@/components/PricingSection";
 import { FAQSection } from "@/components/FAQSection";
 import { FinalCtaSection } from "@/components/FinalCtaSection";
 
-// Page flow (Landing Page Trust + Conversion Revision):
-// 1. Hero  2. Trust/value strip  3. Why FX University / structured learning
-// 4. What You'll Learn (high-level)  5. Inside the Learning Experience
-// 6. Who It's For  7. What You Get  8. Pricing  9. FAQ  10. Final CTA
-// 11. Minimal footer/legal (rendered by app/course/layout.tsx's <Footer />)
+// Page flow (Landing Page Trust + Conversion Revision, extended by the
+// Final Promotion + Social Proof Pass with a stats strip after Trust):
+// 1. Hero  2. Trust/value strip  2b. Social proof stats  3. Why FX University
+// / structured learning  4. What You'll Learn (high-level)  5. Inside the
+// Learning Experience  6. Who It's For  7. What You Get  8. Pricing (incl.
+// special enrollment offer)  9. FAQ  10. Final CTA  11. Minimal
+// footer/legal (rendered by app/course/layout.tsx's <Footer />)
 //
 // Sections previously here (Problem/Solution/Process/Benefits/Outcomes/
 // Bonuses/OpportunityCost/HowItWorks/RiskDisclaimer/Testimonials) are no
@@ -28,6 +31,7 @@ export default function CoursePage() {
     <>
       <Hero />
       <TrustSection />
+      <SocialProofSection />
       <WhyStructuredSection />
       <CurriculumSection />
       <CoursePreviewSection />

@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/lib/rate-limit";
 import { checkCourseAccess, getCourseId } from "@/lib/access";
-import { getCoursePricing } from "@/lib/payments/access-activation";
+import { resolvePricing } from "@/lib/pricing";
 import { initializeTransaction, generateOrderReference } from "@/lib/payments/paystack";
 
 function getSiteUrl(): string {
@@ -42,9 +42,15 @@ export async function initializeCheckoutAction(): Promise<void> {
     redirect(`/get-started?error=${encodeURIComponent("Too many attempts. Please try again in a few minutes.")}`);
   }
 
+  // The ONLY place the payable amount is decided: re-derived server-side,
+  // right now, from pricing_settings + the server's own clock (lib/pricing.ts)
+  // — never from anything the browser sent. Whatever this resolves to is
+  // what gets written to the order AND what Paystack is told to charge, so
+  // the two can never disagree with each other.
   let pricing: { amountMinorUnits: number; currency: string };
   try {
-    pricing = getCoursePricing();
+    const state = await resolvePricing();
+    pricing = { amountMinorUnits: state.payableMinorUnits, currency: state.currency };
   } catch {
     redirect(
       `/get-started?error=${encodeURIComponent(

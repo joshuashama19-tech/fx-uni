@@ -8,6 +8,7 @@ import { signUpAction, signInAction } from "@/lib/auth/actions";
 import { initializeCheckoutAction } from "@/lib/payments/checkout-action";
 import { siteConfig } from "@/lib/course-data";
 import { getSiteContent } from "@/lib/content";
+import { resolvePricing } from "@/lib/pricing";
 import { Container } from "@/components/ui/Container";
 import { IconArrowRight, IconAlert, IconMail } from "@/components/icons";
 
@@ -15,21 +16,6 @@ export const metadata: Metadata = {
   title: "Get Started",
   description: "Create your account and get secure access to FX University.",
 };
-
-function formatPrice(): string | null {
-  const amountRaw = process.env.COURSE_PRICE_MINOR_UNITS;
-  const currency = process.env.COURSE_PRICE_CURRENCY;
-  if (!amountRaw || !currency) return null;
-  const amount = parseInt(amountRaw, 10);
-  if (!Number.isFinite(amount)) return null;
-  try {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(
-      amount / 100
-    );
-  } catch {
-    return `${currency.toUpperCase()} ${(amount / 100).toFixed(2)}`;
-  }
-}
 
 type SearchParams = {
   mode?: string;
@@ -57,7 +43,7 @@ export default async function GetStartedPage({
     }
   }
 
-  const price = formatPrice();
+  const pricingState = await resolvePricing();
   const content = await getSiteContent();
   const next = params.next && params.next.startsWith("/") && !params.next.startsWith("//") ? params.next : "/learn";
 
@@ -99,7 +85,7 @@ export default async function GetStartedPage({
           ) : null}
 
           {user ? (
-            <CheckoutPanel email={user.email ?? ""} price={price} billingNote={content.pricing_billing_note} />
+            <CheckoutPanel email={user.email ?? ""} pricing={pricingState} billingNote={content.pricing_billing_note} />
           ) : (
             <AuthPanel mode={params.mode === "login" ? "login" : "signup"} next={next} />
           )}
@@ -140,11 +126,11 @@ function StatusPanel({
 
 function CheckoutPanel({
   email,
-  price,
+  pricing,
   billingNote,
 }: {
   email: string;
-  price: string | null;
+  pricing: Awaited<ReturnType<typeof resolvePricing>>;
   billingNote: string;
 }) {
   return (
@@ -154,7 +140,17 @@ function CheckoutPanel({
 
       <div className="mb-6 rounded-xl border border-ink-100 bg-ink-50 p-4">
         <p className="text-sm text-ink-500">{siteConfig.name} — full course</p>
-        <p className="mt-1 text-2xl font-semibold text-ink-950">{price ?? "Confirmed at checkout"}</p>
+        {pricing.isPromoActive ? (
+          <div className="mt-1 flex flex-wrap items-baseline gap-2">
+            <span className="text-sm text-ink-400 line-through">{pricing.regularPriceFormatted}</span>
+            <span className="text-2xl font-semibold text-ink-950">{pricing.payableFormatted}</span>
+            <span className="rounded-full bg-brand-600 px-2 py-0.5 text-xs font-bold text-white">
+              {pricing.discountPercent}% OFF
+            </span>
+          </div>
+        ) : (
+          <p className="mt-1 text-2xl font-semibold text-ink-950">{pricing.payableFormatted}</p>
+        )}
         <p className="mt-1 text-xs text-ink-500">{billingNote}</p>
       </div>
 

@@ -36,24 +36,6 @@ interface ConfirmResult {
   orderId?: string;
 }
 
-function getCoursePricing(): { amountMinorUnits: number; currency: string } {
-  const amountRaw = process.env.COURSE_PRICE_MINOR_UNITS;
-  const currency = process.env.COURSE_PRICE_CURRENCY;
-  if (!amountRaw || !currency) {
-    throw new Error(
-      "COURSE_PRICE_MINOR_UNITS and COURSE_PRICE_CURRENCY must both be set before checkout can run. " +
-        "There is no default price — see .env.example."
-    );
-  }
-  const amountMinorUnits = parseInt(amountRaw, 10);
-  if (!Number.isFinite(amountMinorUnits) || amountMinorUnits <= 0) {
-    throw new Error("COURSE_PRICE_MINOR_UNITS must be a positive integer.");
-  }
-  return { amountMinorUnits, currency: currency.toUpperCase() };
-}
-
-export { getCoursePricing };
-
 export async function confirmSuccessfulPayment(params: {
   reference: string;
   source: PaymentSource;
@@ -87,12 +69,21 @@ export async function confirmSuccessfulPayment(params: {
   // Re-verify with Paystack directly — the actual trusted confirmation.
   const verification = await verifyTransaction(params.reference);
 
-  const { amountMinorUnits, currency } = getCoursePricing();
-  const matchesExpectedAmount =
-    verification.amountMinorUnits === order.amount_minor_units &&
-    verification.amountMinorUnits === amountMinorUnits;
-  const matchesExpectedCurrency =
-    verification.currency === order.currency && verification.currency === currency;
+  // The order row is itself the authoritative record of what this specific
+  // checkout was for: it was written server-side, at checkout-initiation
+  // time, from resolvePricing()'s output (lib/payments/checkout-action.ts),
+  // and students have no RLS write access to it afterward (no update policy
+  // exists on orders for the authenticated role — see
+  // supabase/migrations/0001_init.sql). So the only thing that needs
+  // checking here is that Paystack's own verified amount matches what THIS
+  // order was created for — never a freshly re-resolved "current" price,
+  // which could legitimately have moved (a promotion starting, ending, or
+  // being edited by an admin) in the minutes between checkout and this
+  // confirmation. Re-checking against a moving target would risk disputing
+  // a perfectly legitimate payment purely because the price changed while
+  // the student was on Paystack's hosted checkout page.
+  const matchesExpectedAmount = verification.amountMinorUnits === order.amount_minor_units;
+  const matchesExpectedCurrency = verification.currency === order.currency;
 
   const inserted = await logPaymentEvent(admin, {
     dedupeKey,

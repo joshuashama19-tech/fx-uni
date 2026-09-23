@@ -3,30 +3,66 @@
 import { useState } from "react";
 import { Reveal } from "./ui/Reveal";
 import { Button } from "./ui/Button";
-import { IconCheck, IconShield, IconArrowRight } from "./icons";
+import { IconCheck } from "./icons";
 import { pricing } from "@/lib/course-data";
+import { PromoCountdown } from "./PromoCountdown";
+import type { PricingState } from "@/lib/pricing";
 
 type PricingCardProps = {
-  formattedPrice: string;
+  pricingState: PricingState;
   billingNote: string;
 };
 
 /**
- * Pure presentation/interaction (the coupon input's local state). Price and
- * billing note are passed in from the server (components/PricingSection.tsx)
- * — see lib/content.ts for where they actually come from.
+ * Pure presentation/interaction (the coupon input's local state). The
+ * pricing state itself is resolved server-side (components/PricingSection.tsx
+ * -> lib/pricing.ts's resolvePricing()) and passed in whole — this component
+ * never re-derives or overrides any part of it. Whatever it shows here is
+ * exactly what checkout will charge.
  */
-export function PricingCard({ formattedPrice, billingNote }: PricingCardProps) {
+export function PricingCard({ pricingState, billingNote }: PricingCardProps) {
   const [coupon, setCoupon] = useState("");
+  const promo = pricingState.isPromoActive;
 
   return (
     <Reveal delay={100} className="mx-auto mt-12 max-w-lg">
       <div className="rounded-3xl border border-ink-900 bg-ink-950 p-7 shadow-2xl sm:p-9">
         <div>
-          <div className="flex flex-wrap items-baseline gap-3">
-            <span className="text-4xl font-bold tracking-tight text-white sm:text-5xl">{formattedPrice}</span>
+          {promo ? (
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-brand-400">
+              {pricingState.promotionTitle}
+            </p>
+          ) : null}
+
+          <div className="mt-2 flex flex-wrap items-baseline gap-3">
+            {promo ? (
+              <span className="text-lg font-medium text-ink-500 line-through">
+                {pricingState.regularPriceFormatted}
+              </span>
+            ) : null}
+            <span className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
+              {pricingState.payableFormatted}
+            </span>
+            {promo ? (
+              <span className="rounded-full bg-brand-600 px-3 py-1 text-sm font-bold text-white">
+                {pricingState.discountPercent}% OFF
+              </span>
+            ) : null}
           </div>
+
+          {promo ? (
+            <p className="mt-1.5 text-sm font-semibold text-brand-300">Save {pricingState.savingsFormatted}</p>
+          ) : null}
+
           <p className="mt-1.5 text-sm text-ink-400">{billingNote}</p>
+
+          {promo && pricingState.promotionSubtext ? (
+            <p className="mt-3 text-sm leading-relaxed text-ink-400">{pricingState.promotionSubtext}</p>
+          ) : null}
+
+          {promo && pricingState.countdownEnabled && pricingState.endsAt ? (
+            <PromoCountdown endsAt={pricingState.endsAt} label="Special enrollment offer ends in" />
+          ) : null}
 
           <ul className="mt-7 space-y-3">
             {pricing.features.map((feature) => (
@@ -61,19 +97,13 @@ export function PricingCard({ formattedPrice, billingNote }: PricingCardProps) {
             </div>
           </div>
 
-          <Button
-            href={pricing.ctaHref}
-            size="lg"
-            className="mt-7 w-full"
-            icon={<IconArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />}
-          >
+          <Button href={pricing.ctaHref} size="lg" className="mt-7 w-full">
             {pricing.ctaLabel}
           </Button>
 
-          <div className="mt-5 flex items-start gap-2 text-xs text-ink-500">
-            <IconShield className="mt-0.5 h-4 w-4 shrink-0" />
-            <p>{pricing.paymentNote}</p>
-          </div>
+          <p className="mt-5 text-center text-xs text-ink-500">
+            {billingNote} &middot; Secure Paystack checkout &middot; Private student access
+          </p>
         </div>
       </div>
     </Reveal>

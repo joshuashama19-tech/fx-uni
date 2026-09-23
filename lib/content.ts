@@ -1,6 +1,5 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import { getCoursePricing } from "@/lib/payments/access-activation";
 
 /**
  * Admin-editable marketing copy (supabase/migrations/0005_admin_cms.sql,
@@ -52,51 +51,10 @@ export async function getSiteContent(): Promise<Record<SiteContentKey, string>> 
   return result;
 }
 
-/**
- * The single source of truth for the price shown to visitors is the same
- * env vars that gate what Paystack actually charges and what server-side
- * verification checks against (lib/payments/access-activation.ts). This is
- * deliberate: the marketing page's displayed price and the actual charged
- * price must never be able to drift apart, which is exactly what could
- * happen if the display price were a separately-editable CMS field. If you
- * need to change the price, change COURSE_PRICE_MINOR_UNITS /
- * COURSE_PRICE_CURRENCY in Vercel's environment variables — everywhere
- * that shows a price (this function, and the checkout itself) picks it up
- * automatically, and it affects new checkouts only (see
- * getCoursePricing()'s own comment).
- */
-export function getDisplayPrice(): { formatted: string; currency: string | null; amountMajorUnits: number | null } {
-  let amountMinorUnits: number;
-  let currency: string;
-  try {
-    ({ amountMinorUnits, currency } = getCoursePricing());
-  } catch {
-    // getCoursePricing() throws if COURSE_PRICE_MINOR_UNITS /
-    // COURSE_PRICE_CURRENCY aren't set — which would already mean checkout
-    // itself is broken, so this should never happen in a correctly
-    // configured production deployment. But the public marketing page must
-    // never crash over it (unlike checkout, a thrown error here has no
-    // error boundary of its own), so this fails closed to the same
-    // "confirmed at checkout" placeholder app/get-started/page.tsx already
-    // falls back to when it can't compute a price.
-    return { formatted: "Confirmed at checkout", currency: null, amountMajorUnits: null };
-  }
-
-  const amountMajorUnits = amountMinorUnits / 100;
-
-  let formatted: string;
-  try {
-    formatted = new Intl.NumberFormat("en-NG", {
-      style: "currency",
-      currency,
-      maximumFractionDigits: amountMajorUnits % 1 === 0 ? 0 : 2,
-    }).format(amountMajorUnits);
-  } catch {
-    // Intl.NumberFormat throws on an unrecognized ISO currency code —
-    // fall back to a plain "<CODE> <amount>" rather than letting the
-    // whole page fail to render over a formatting nicety.
-    formatted = `${currency} ${amountMajorUnits.toLocaleString("en-NG")}`;
-  }
-
-  return { formatted, currency, amountMajorUnits };
-}
+// The displayed price used to be derived here from env vars — it's now
+// admin-controlled, database-driven pricing. See lib/pricing.ts's
+// resolvePricing(), which is the single source of truth PricingSection,
+// PricingCard, app/get-started/page.tsx, and the actual Paystack checkout
+// amount (lib/payments/checkout-action.ts) all read from directly — kept
+// deliberately out of this file so there's exactly one place ("the price")
+// rather than two systems that could drift apart.

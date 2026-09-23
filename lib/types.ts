@@ -86,3 +86,22 @@ export interface SiteContentRow {
   updated_at: string;
   updated_by: string | null;
 }
+
+// Row for the table added in supabase/migrations/0009_pricing_promotion.sql.
+// Singleton (id always 1) — see lib/pricing.ts for how this becomes the
+// current payable price.
+
+export interface PricingSettingsRow {
+  id: 1;
+  regular_price_minor_units: number;
+  currency: string;
+  offer_price_minor_units: number | null;
+  promotion_active: boolean;
+  promotion_title: string;
+  promotion_subtext: string | null;
+  promotion_starts_at: string | null;
+  promotion_ends_at: string | null;
+  countdown_enabled: boolean;
+  updated_at: string;
+  updated_by: string | null;
+}

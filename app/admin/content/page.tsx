@@ -7,10 +7,10 @@ export const metadata: Metadata = { title: "Admin — Content" };
 
 // The small, fixed set of editable marketing strings (see lib/content.ts).
 // Deliberately NOT every string on the page — layout and most copy stay in
-// code. The displayed price is intentionally absent from this list: it's
-// derived from the same env vars that drive the actual Paystack charge
-// (getDisplayPrice() in lib/content.ts), so it can never be edited
-// separately from what students are actually charged.
+// code. The price itself is intentionally absent from this list — it's
+// managed at /admin/pricing (lib/pricing.ts), which is also what the
+// actual Paystack charge reads, so price and promotion changes always stay
+// in one place rather than being editable from two different screens.
 const FIELDS: { key: string; label: string; multiline?: boolean }[] = [
   { key: "final_cta_headline", label: "Final call-to-action headline" },
   { key: "final_cta_subheadline", label: "Final call-to-action subheadline", multiline: true },
@@ -27,9 +27,11 @@ export default async function AdminContentPage() {
       <div className="mx-auto max-w-2xl">
         <h1 className="text-2xl font-semibold text-ink-950">Marketing content</h1>
         <p className="mt-1 text-sm text-ink-500">
-          A small set of editable strings on /course. To change the price, update the Paystack pricing
-          environment variables — the displayed price always matches what&apos;s actually charged and isn&apos;t
-          editable here.
+          A small set of editable strings on /course. To change the price or the special enrollment offer, use{" "}
+          <a href="/admin/pricing" className="underline underline-offset-2 hover:text-ink-800">
+            Pricing
+          </a>{" "}
+          instead — it&apos;s not editable here.
         </p>
 
         <div className="mt-8 space-y-4">

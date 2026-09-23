@@ -27,6 +27,19 @@ export const studentProof = {
   displaySuffix: "+",
 };
 
+// Premium stats/social-proof strip (Final Promotion + Social Proof Pass,
+// req. #1/#11). Every figure here is a real product fact — no invented
+// ratings, visitor counts, or purchase activity.
+export const socialProofStats = {
+  headline: `Trusted by ${studentProof.count.toLocaleString("en-US")}${studentProof.displaySuffix} students`,
+  stats: [
+    { value: `${studentProof.count.toLocaleString("en-US")}${studentProof.displaySuffix}`, label: "Students" },
+    { value: "10", label: "Modules" },
+    { value: "135", label: "Lessons" },
+    { value: "188", label: "Interactive Learning Elements" },
+  ],
+};
+
 export const nav = {
   links: [
     { label: "Curriculum", href: "#curriculum" },
@@ -436,20 +449,25 @@ export const opportunityCost = {
     "You can keep searching for random Forex information, or you can follow a structured learning path built to take you from beginner to intermediate in order.",
 };
 
-// The displayed price and billing note are NOT defined here — they come from
-// lib/content.ts's getDisplayPrice() (derived from the same env vars that
-// drive the actual Paystack charge, so display and charge can never drift
-// apart) and getSiteContent() (admin-editable via /admin/content) via
-// components/PricingSection.tsx. There is deliberately no "original price"
-// / discount-badge field: this course has one real price, and a struck-
-// through anchor price would be a fabricated discount claim.
+// The displayed price, offer price, and discount/savings badges are NOT
+// defined here — they come from lib/pricing.ts's resolvePricing()
+// (admin-controlled via /admin/pricing, database-driven — see
+// supabase/migrations/0009_pricing_promotion.sql) and getSiteContent()
+// (the billing note, admin-editable via /admin/content) via
+// components/PricingSection.tsx. That's what keeps the displayed price, the
+// checkout price, and the actual Paystack charge from ever being able to
+// drift apart — a struck-through "regular price" only ever appears when a
+// real, admin-configured promotion is currently active.
 export const pricing = {
   eyebrow: "Enrollment",
   headline: "One course. One price. Full access.",
   subheadline:
     "Everything from the fundamentals to a full trading plan, in one structured course — here's exactly what's included.",
   couponPlaceholder: "Have a coupon code?",
-  ctaLabel: "Get Course Access",
+  // The actual price/discount shown alongside this label comes from
+  // lib/pricing.ts's resolvePricing() (admin-controlled, database-driven —
+  // see /admin/pricing), never from this file.
+  ctaLabel: "Get Full Course Access →",
   ctaHref: "/get-started",
   features: [
     "All 10 modules — fundamentals through to a full trading plan",
@@ -459,6 +477,17 @@ export const pricing = {
     "Your progress and completed lessons saved to your account",
   ],
   paymentNote: "Payments are processed securely through Paystack.",
+};
+
+// FOMO / loss-aversion copy shown near the pricing section (Final Promotion
+// + Social Proof Pass, req. #6). Framed around the real cost of staying
+// unstructured — never a promise of profit, income, or guaranteed results.
+export const pricingFomo = {
+  headline: "Stop piecing Forex together.",
+  body: "You can keep jumping between random videos, strategies and conflicting opinions — or follow one structured learning path.",
+  scopeLine: "135 lessons. 10 modules. One organized learning experience.",
+  nextStepHeadline: "Your next step doesn't need to be another random tutorial.",
+  nextStepBody: "Build your foundation. Practice what you learn. Test your understanding. Develop your process.",
 };
 
 export const howItWorks = {
