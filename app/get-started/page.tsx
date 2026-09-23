@@ -12,6 +12,7 @@ import { resolvePricing } from "@/lib/pricing";
 import { Container } from "@/components/ui/Container";
 import { IconArrowRight, IconAlert, IconMail } from "@/components/icons";
 import { SignupForm } from "@/components/auth/SignupForm";
+import { PasswordField } from "@/components/auth/PasswordField";
 
 export const metadata: Metadata = {
   title: "Get Started",
@@ -207,7 +208,7 @@ function AuthPanel({ mode, next }: { mode: "signup" | "login"; next: string }) {
           <input type="hidden" name="next" value={next} />
           <input type="hidden" name="redirectPath" value="/get-started" />
           <Field label="Email" name="email" type="email" autoComplete="email" required />
-          <Field label="Password" name="password" type="password" autoComplete="current-password" required />
+          <PasswordField label="Password" name="password" autoComplete="current-password" required />
           <div className="text-right">
             <Link href="/forgot-password" className="text-xs text-ink-500 underline underline-offset-2 hover:text-ink-800">
               Forgot password?
