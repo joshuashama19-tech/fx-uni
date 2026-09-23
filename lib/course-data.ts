@@ -251,176 +251,47 @@ export const whyStructured = {
     "You can keep searching for the next free video, or you can follow a path that's already been put in order for you.",
 };
 
-export type CurriculumModule = {
+// High-level "What You'll Learn" phases — intentionally do NOT expose the
+// full module/lesson-level curriculum publicly. Students get enough detail
+// to understand the scope and transformation, not the complete lesson-by-
+// lesson breakdown. (Landing Page Trust + Conversion Revision, req. #2)
+export type LearningPhase = {
   number: number;
   title: string;
   description: string;
-  topics: string[];
 };
 
 export const curriculum = {
-  eyebrow: "Course Curriculum",
-  headline: "10 modules, built in order.",
+  eyebrow: "What You'll Learn",
+  headline: "A clear path from the fundamentals to a complete trading process.",
   subheadline:
-    "Each module builds on the last — from understanding what Forex is, to developing your own structured approach to the market.",
-  modules: [
+    "Every phase builds on the last, so you always know what comes next — without needing to see the full lesson-by-lesson breakdown up front.",
+  phases: [
     {
       number: 1,
-      title: "Forex Fundamentals",
+      title: "Build the Foundations",
       description:
-        "The foundation everything else is built on: what the Forex market is and how it actually functions.",
-      topics: [
-        "What the Forex market is and who actually trades in it",
-        "Currency pairs explained: base vs. quote currency",
-        "Majors, minors, and exotics — and how they differ",
-        "Pips and pipettes: how price movement is measured",
-        "Lot sizes: standard, mini, micro, and what they mean for risk",
-        "Spreads and the bid/ask price, in plain terms",
-        "Leverage and margin — how they work, and the risk they add",
-        "Trading sessions and market participants (banks, brokers, retail traders)",
-        "Order types: market, limit, and stop orders explained",
-      ],
+        "Understand how Forex works, currency pairs, market mechanics and the foundations needed to read the market.",
     },
     {
       number: 2,
-      title: "Reading & Understanding Charts",
-      description: "Learn to look at a chart and understand what it's actually showing you.",
-      topics: [
-        "Candlesticks and OHLC (open, high, low, close) explained",
-        "Choosing and switching between timeframes",
-        "Identifying trends, highs, and lows",
-        "Support and resistance: how to spot real levels",
-        "Understanding market structure at a glance",
-        "Breakouts vs. false breakouts — telling them apart",
-        "Reading the same chart across multiple timeframes",
-      ],
+      title: "Read the Market",
+      description: "Develop your understanding of charts, technical analysis and price action.",
     },
     {
       number: 3,
-      title: "Technical Analysis",
-      description: "The tools traders use to study price behavior and support their decisions.",
-      topics: [
-        "Drawing trendlines correctly (and avoiding the common mistakes)",
-        "Moving averages and how to use them as a trend filter",
-        "RSI: reading momentum and overbought/oversold conditions",
-        "MACD: what it shows and how to read it",
-        "Fibonacci retracements for spotting potential reaction zones",
-        "Common chart patterns and candlestick patterns",
-        "Confluence: combining tools instead of relying on one",
-        "The limitations of indicators — what they can't tell you",
-      ],
+      title: "Build Your Trading Process",
+      description: "Work through risk management, psychology and structured trading decisions.",
     },
     {
       number: 4,
-      title: "Price Action",
-      description: "Reading raw price movement instead of relying only on indicators.",
-      topics: [
-        "Reading price movement without indicators",
-        "Market structure: highs, lows, and structural shifts",
-        "Supply and demand zones explained",
-        "Liquidity concepts and why price often reacts where it does",
-        "Break of structure (BOS) and change of character (CHOCH)",
-        "Planning entries based on structure, not guesswork",
-        "Setting a stop loss and take profit with a reason behind each",
-        "Applying price action across multiple timeframes",
-      ],
-    },
-    {
-      number: 5,
-      title: "Fundamental Analysis",
-      description: "Understanding the economic events and data that move currency pairs.",
-      topics: [
-        "Interest rates and why they move currencies",
-        "Inflation and what rising or falling inflation signals",
-        "Employment data and why it matters to traders",
-        "CPI and NFP: what these reports are and why they're watched closely",
-        "GDP and broader economic health indicators",
-        "How central banks influence the market",
-        "Reading an economic calendar and prioritizing major events",
-        "Geopolitics and unscheduled news",
-        "Combining fundamentals with your technical analysis",
-      ],
-    },
-    {
-      number: 6,
-      title: "Risk Management",
+      title: "Test, Journal & Refine",
       description:
-        "The single most important skill for staying in the game long enough to improve. Includes worked, practical numerical examples throughout.",
-      topics: [
-        "Deciding how much to risk per trade — with worked examples",
-        "Position sizing: calculating lot size from your risk and stop loss",
-        "Setting a stop loss and take profit with real numbers",
-        "Risk-to-reward ratios, explained with real trade examples",
-        "Understanding drawdown and why it compounds",
-        "How leverage and margin affect your real risk",
-        "Handling losing streaks without blowing up your account",
-        "Capital preservation as the actual first goal",
-      ],
+        "Learn how to build a trading plan, backtest ideas, journal trades and develop a repeatable process.",
     },
-    {
-      number: 7,
-      title: "Trading Psychology",
-      description: "Managing the mental side of trading — often the hardest part.",
-      topics: [
-        "Fear and how it leads to hesitation or early exits",
-        "Greed and how it leads to oversized, undisciplined trades",
-        "FOMO: recognizing it in the moment",
-        "Revenge trading — what it is and how it starts",
-        "Overtrading and why more trades isn't more progress",
-        "Impatience and jumping in before your setup is ready",
-        "Confirmation bias: only seeing what supports what you want to see",
-        "Building real discipline, patience, and emotional control",
-      ],
-    },
-    {
-      number: 8,
-      title: "Building a Trading Plan",
-      description:
-        "Turning everything you've learned into a written set of personal rules, using a practical trading-plan framework included in this module.",
-      topics: [
-        "Defining your trading style and the markets you'll focus on",
-        "Choosing your timeframes and weekly schedule",
-        "Writing down your setups and entry criteria",
-        "Defining exit rules before you're in the trade",
-        "Setting your personal risk rules in writing",
-        "Building a routine around your trading sessions",
-        "Running a structured weekly review",
-        "The trading-plan framework: filling in your own plan step by step",
-      ],
-    },
-    {
-      number: 9,
-      title: "Backtesting & Trading Journal",
-      description:
-        "Testing ideas honestly and tracking your own progress over time, using a practical journal framework included in this module.",
-      topics: [
-        "What backtesting is and why it matters before risking real money",
-        "Testing a set of rules against historical charts",
-        "Collecting your own data instead of relying on assumptions",
-        "Win rate and average win/loss, explained simply",
-        "Risk/reward and expectancy — what they tell you together",
-        "Understanding drawdown from your own test results",
-        "Forward testing on a demo account before going live",
-        "The trading-journal framework: what to record after every trade",
-      ],
-    },
-    {
-      number: 10,
-      title: "Practical Forex Development",
-      description:
-        "Bringing it all together with practical tasks that reinforce the full course.",
-      topics: [
-        "Applying the full course on a demo account before anything else",
-        "What to look for in a broker, and basic broker-safety checks",
-        "Recognizing common Forex scams and red flags",
-        "Signal dependency — and why the course avoids creating it",
-        "An honest look at prop firms and what they actually involve",
-        "Turning the course into a repeatable weekly process",
-        "Common beginner mistakes and how to avoid repeating them",
-        "Continuous improvement: what to revisit as you progress",
-      ],
-    },
-  ] satisfies CurriculumModule[],
+  ] satisfies LearningPhase[],
+  scopeStatement:
+    "10 structured modules. 135 lessons. Practical learning from foundations through to a complete trading process.",
 };
 
 export const audienceFit = {
@@ -509,15 +380,28 @@ export const whatYouGet = {
   ],
 };
 
-export const coursePreview = {
-  eyebrow: "Course Experience",
-  headline: "A clean, focused reading experience.",
-  subheadline:
-    "Placeholder previews below — real course screenshots will replace these once the material is finalized.",
+// "Inside The Learning Experience" — shows the actual student flow inside
+// the existing platform (lesson reading, knowledge checks, practical
+// exercises, completion checklists, progress tracking), rendered as an
+// original interface mockup rather than real screenshots. (Landing Page
+// Trust + Conversion Revision, req. #5)
+export const insideExperience = {
+  eyebrow: "Inside The Learning Experience",
+  headline: "See how every lesson is actually built.",
+  subheadline: "Learn → Think → Practice → Check your understanding → Track your progress.",
+  flowSteps: [
+    { title: "Learn", description: "Read each concept in plain language." },
+    { title: "Think", description: "Work through a scenario or question." },
+    { title: "Practice", description: "Apply it with a hands-on exercise." },
+    { title: "Check", description: "Confirm your understanding before moving on." },
+    { title: "Track", description: "See your progress saved as you go." },
+  ],
   items: [
-    { title: "Module overview screens", description: "Clear structure for every module and lesson." },
-    { title: "Visual examples", description: "Annotated chart examples to reinforce each concept." },
-    { title: "Checklists & exercises", description: "Practical tasks at the end of each section." },
+    { title: "Lesson reading", description: "Clear, focused lessons broken into plain-language sections." },
+    { title: "Knowledge checks", description: "Short questions that confirm you understood the concept." },
+    { title: "Practical exercises", description: "Hands-on tasks that apply what you just learned." },
+    { title: "Completion checklists", description: "A clear checklist to close out each lesson with confidence." },
+    { title: "Progress tracking", description: "Your completed lessons are saved to your account automatically." },
   ],
 };
 
@@ -572,7 +456,7 @@ export const pricing = {
     "Practical exercises, checklists, and worked examples in every module",
     "Backtesting walkthrough and a trading-journal framework",
     "Secure, personal course access on mobile and desktop",
-    "Bonus resources, added here once finalized",
+    "Your progress and completed lessons saved to your account",
   ],
   paymentNote: "Payments are processed securely through Paystack.",
 };
@@ -608,27 +492,30 @@ export const faq = {
   headline: "Common questions, answered honestly.",
 };
 
-// Social proof (section #16). Pairs the genuine student-count claim with
-// honest trust signals. Deliberately does not mention results/profit.
+// Premium trust/value section (Landing Page Trust + Conversion Revision,
+// req. #3). Every claim below is directly supported by the existing
+// product (the interaction system, progress tracking, and access model) —
+// deliberately no student counts, testimonials, awards, or results claims.
 export const trust = {
-  eyebrow: "Trusted By Thousands",
-  headline: "Built to be honest, not hyped.",
-  studentProofNote:
-    "That figure means students who have been trained through the course — not that all of them are currently active, and not a claim about who became profitable.",
+  headline: "A structured learning platform — not a signal group.",
   subheadline:
-    "We'd rather under-promise than exaggerate anywhere on this page.",
+    "FX University is built around structured education, practical application and disciplined development — so you can learn the concepts, test your understanding and build your own trading process.",
   points: [
     {
-      title: "Original course content",
-      description: "Written from scratch specifically for this course — not copied from other sources.",
+      title: "Structured Curriculum",
+      description: "135 lessons organized into a progressive 10-module learning path.",
     },
     {
-      title: "Secure checkout & access",
-      description: "Your payment and course access are handled through protected, access-controlled systems.",
+      title: "Learn By Doing",
+      description: "Exercises, knowledge checks, practical tasks and completion checklists throughout the course.",
     },
     {
-      title: "Clear, honest marketing",
-      description: "No fake urgency, no fake scarcity, no fake numbers, and no guaranteed-profit claims.",
+      title: "Track Your Progress",
+      description: "Your learning progress and completed lessons are saved to your account.",
+    },
+    {
+      title: "Secure Student Access",
+      description: "Private course access with a dedicated learning environment on mobile and desktop.",
     },
   ],
 };
@@ -686,7 +573,7 @@ export const footer = {
       links: [
         { label: "Privacy Policy", href: "/privacy" }, // PLACEHOLDER page
         { label: "Terms of Service", href: "/terms" }, // PLACEHOLDER page
-        { label: "Risk Disclaimer", href: "#risk-disclaimer" },
+        { label: "Risk Disclaimer", href: "/terms" },
       ],
     },
   ],

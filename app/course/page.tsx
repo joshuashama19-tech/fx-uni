@@ -1,65 +1,40 @@
 import { Hero } from "@/components/Hero";
-import { ProblemSection } from "@/components/ProblemSection";
-import { SolutionSection } from "@/components/SolutionSection";
+import { TrustSection } from "@/components/TrustSection";
 import { WhyStructuredSection } from "@/components/WhyStructuredSection";
-import { ProcessSection } from "@/components/ProcessSection";
-import { BenefitsSection } from "@/components/BenefitsSection";
 import { CurriculumSection } from "@/components/CurriculumSection";
-import { OutcomesSection } from "@/components/OutcomesSection";
+import { CoursePreviewSection } from "@/components/CoursePreviewSection";
 import { AudienceFitSection } from "@/components/AudienceFitSection";
 import { WhatYouGetSection } from "@/components/WhatYouGetSection";
-import { CoursePreviewSection } from "@/components/CoursePreviewSection";
-import { BonusesSection } from "@/components/BonusesSection";
-import { OpportunityCostSection } from "@/components/OpportunityCostSection";
 import { PricingSection } from "@/components/PricingSection";
-import { HowItWorksSection } from "@/components/HowItWorksSection";
-import { TrustSection } from "@/components/TrustSection";
-import { TestimonialsSection } from "@/components/TestimonialsSection";
 import { FAQSection } from "@/components/FAQSection";
-import { RiskDisclaimerSection } from "@/components/RiskDisclaimerSection";
 import { FinalCtaSection } from "@/components/FinalCtaSection";
 
+// Page flow (Landing Page Trust + Conversion Revision):
+// 1. Hero  2. Trust/value strip  3. Why FX University / structured learning
+// 4. What You'll Learn (high-level)  5. Inside the Learning Experience
+// 6. Who It's For  7. What You Get  8. Pricing  9. FAQ  10. Final CTA
+// 11. Minimal footer/legal (rendered by app/course/layout.tsx's <Footer />)
+//
+// Sections previously here (Problem/Solution/Process/Benefits/Outcomes/
+// Bonuses/OpportunityCost/HowItWorks/RiskDisclaimer/Testimonials) are no
+// longer part of the sales-page flow — their component files remain in the
+// repo, unused, so no legal/content/architecture is deleted. The large
+// risk-disclaimer block was removed from the page body per req. #1 (the
+// concise footer disclaimer already covers this); the full lesson-level
+// curriculum accordion was replaced by CurriculumSection's high-level
+// overview per req. #2.
 export default function CoursePage() {
   return (
     <>
-      {/* 1. Hook: what it is, who it's for, the transformation, a clear CTA */}
       <Hero />
-
-      {/* 2. Agitate: make the reader feel understood */}
-      <ProblemSection />
-
-      {/* 3. Resolve: the structured path + the process behind it */}
-      <SolutionSection />
-      <ProcessSection />
-
-      {/* 4. Objection handling: free content vs. structure */}
-      <WhyStructuredSection />
-
-      {/* 5. Practical skills + full curriculum depth */}
-      <BenefitsSection />
-      <CurriculumSection />
-
-      {/* 6. Identity-level transformation, then audience fit */}
-      <OutcomesSection />
-      <AudienceFitSection />
-
-      {/* 7. Full value stack, preview, bonuses */}
-      <WhatYouGetSection />
-      <CoursePreviewSection />
-      <BonusesSection />
-
-      {/* 8. Real urgency (no fake scarcity), then the offer itself */}
-      <OpportunityCostSection />
-      <PricingSection />
-
-      {/* 9. Reduce friction: how it works, social proof, testimonials, objections, risk */}
-      <HowItWorksSection />
       <TrustSection />
-      <TestimonialsSection />
+      <WhyStructuredSection />
+      <CurriculumSection />
+      <CoursePreviewSection />
+      <AudienceFitSection />
+      <WhatYouGetSection />
+      <PricingSection />
       <FAQSection />
-      <RiskDisclaimerSection />
-
-      {/* 10. Last chance to act */}
       <FinalCtaSection />
     </>
   );

@@ -1,15 +1,16 @@
-"use client";
-
-import { useState } from "react";
 import { curriculum } from "@/lib/course-data";
 import { Container } from "./ui/Container";
 import { SectionHeading } from "./ui/SectionHeading";
 import { Reveal } from "./ui/Reveal";
-import { IconChevronDown, IconCheck } from "./icons";
 
+/**
+ * High-level "What You'll Learn" overview — intentionally shows only the
+ * four learning phases, never the full module/lesson-level curriculum.
+ * (Landing Page Trust + Conversion Revision, req. #2 — students should
+ * understand scope and transformation without receiving the complete
+ * curriculum before purchase.)
+ */
 export function CurriculumSection() {
-  const [openModule, setOpenModule] = useState<number | null>(1);
-
   return (
     <section id="curriculum" className="bg-ink-950 py-20 sm:py-24">
       <Container>
@@ -20,66 +21,25 @@ export function CurriculumSection() {
           tone="dark"
         />
 
-        <div className="mt-14 grid gap-3 sm:mt-16">
-          {curriculum.modules.map((mod, i) => {
-            const isOpen = openModule === mod.number;
-            return (
-              <Reveal key={mod.number} delay={Math.min(i, 6) * 40}>
-                <div
-                  className={`overflow-hidden rounded-2xl border transition-colors duration-200 ${
-                    isOpen ? "border-brand-500/40 bg-white/[0.05]" : "border-white/10 bg-white/[0.02]"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setOpenModule(isOpen ? null : mod.number)}
-                    aria-expanded={isOpen}
-                    aria-controls={`module-panel-${mod.number}`}
-                    className="flex w-full items-center gap-4 px-5 py-5 text-left sm:px-6"
-                  >
-                    <span
-                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold ${
-                        isOpen ? "bg-brand-700 text-white" : "bg-white/[0.06] text-brand-300"
-                      }`}
-                    >
-                      {String(mod.number).padStart(2, "0")}
-                    </span>
-                    <span className="flex-1">
-                      <span className="block text-base font-semibold text-white sm:text-lg">{mod.title}</span>
-                      <span className="mt-1 hidden text-sm text-ink-400 sm:block">{mod.description}</span>
-                    </span>
-                    <IconChevronDown
-                      className={`h-5 w-5 shrink-0 text-ink-400 transition-transform duration-200 ${
-                        isOpen ? "rotate-180 text-brand-300" : ""
-                      }`}
-                    />
-                  </button>
-
-                  <div
-                    id={`module-panel-${mod.number}`}
-                    className={`grid transition-all duration-300 ease-out ${
-                      isOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-                    }`}
-                  >
-                    <div className="overflow-hidden">
-                      <div className="px-5 pb-6 sm:px-6 sm:pl-[4.5rem]">
-                        <p className="text-sm text-ink-400 sm:hidden">{mod.description}</p>
-                        <ul className="mt-3 grid gap-2.5 sm:grid-cols-2">
-                          {mod.topics.map((topic) => (
-                            <li key={topic} className="flex items-start gap-2.5 text-sm text-ink-200">
-                              <IconCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand-400" />
-                              {topic}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </Reveal>
-            );
-          })}
+        <div className="mt-14 grid grid-cols-1 gap-4 sm:mt-16 sm:grid-cols-2 lg:grid-cols-4">
+          {curriculum.phases.map((phase, i) => (
+            <Reveal
+              key={phase.number}
+              delay={i * 80}
+              className="relative flex flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-6"
+            >
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.06] text-sm font-bold text-brand-300">
+                {String(phase.number).padStart(2, "0")}
+              </span>
+              <h3 className="mt-4 text-base font-semibold text-white">{phase.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-ink-400">{phase.description}</p>
+            </Reveal>
+          ))}
         </div>
+
+        <Reveal delay={340} className="mx-auto mt-10 max-w-2xl text-center text-sm font-medium text-ink-300 sm:text-base">
+          {curriculum.scopeStatement}
+        </Reveal>
       </Container>
     </section>
   );

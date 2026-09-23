@@ -3,7 +3,6 @@ import { Button } from "./ui/Button";
 import { Container } from "./ui/Container";
 import { Reveal } from "./ui/Reveal";
 import { HeroChartCard } from "./HeroChartCard";
-import { StudentCount } from "./StudentCount";
 import { IconArrowRight, IconCheck } from "./icons";
 
 export function Hero() {
@@ -51,12 +50,7 @@ export function Hero() {
             </Button>
           </Reveal>
 
-          <Reveal delay={300} className="mt-6 flex items-center gap-2 text-sm font-medium text-ink-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-brand-500" aria-hidden />
-            <StudentCount format="trained" />
-          </Reveal>
-
-          <Reveal delay={340} className="mt-3 text-xs text-ink-500">
+          <Reveal delay={300} className="mt-6 text-xs text-ink-500">
             {hero.disclaimerNote}
           </Reveal>
         </div>
