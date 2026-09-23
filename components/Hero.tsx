@@ -41,14 +41,26 @@ export function Hero() {
             </ul>
           </Reveal>
 
-          <Reveal delay={260} className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
+          {/* QA fix: these CTAs were previously wrapped in <Reveal>, which
+              renders at opacity:0 until client-side JS (IntersectionObserver)
+              confirms visibility — see components/ui/Reveal.tsx and the
+              hydration-fragility note in app/layout.tsx. Under any hiccup in
+              that JS (slow hydration, the CSP-nonce issue this app has hit
+              in production before, etc.) the buttons stay permanently
+              invisible while their pill background/ring can still appear to
+              paint, matching the reported bug exactly. Primary conversion
+              CTAs should never depend on animation timing to be visible, so
+              this row is now rendered plainly (no opacity/animation gate) —
+              layout, sizing, spacing, and the buttons' own hover animation
+              are all unchanged. */}
+          <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
             <Button href={hero.ctaPrimary.href} size="lg" icon={<IconArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />}>
               {hero.ctaPrimary.label}
             </Button>
             <Button href={hero.ctaSecondary.href} variant="ghost" size="lg">
               {hero.ctaSecondary.label}
             </Button>
-          </Reveal>
+          </div>
 
           <Reveal delay={300} className="mt-6 text-xs text-ink-500">
             {hero.disclaimerNote}

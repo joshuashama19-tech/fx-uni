@@ -68,7 +68,7 @@ export const hero = {
     "Focused on understanding the market, not chasing signals",
   ],
   ctaPrimary: { label: "Get Course Access", href: "#pricing" },
-  ctaSecondary: { label: "View Curriculum", href: "#curriculum" },
+  ctaSecondary: { label: "See What's Included", href: "#curriculum" },
   disclaimerNote:
     "Educational course only. Trading Forex involves substantial risk of loss.",
 };
