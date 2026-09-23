@@ -4,13 +4,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { checkCourseAccess } from "@/lib/access";
-import { signUpAction, signInAction } from "@/lib/auth/actions";
+import { signInAction } from "@/lib/auth/actions";
 import { initializeCheckoutAction } from "@/lib/payments/checkout-action";
 import { siteConfig } from "@/lib/course-data";
 import { getSiteContent } from "@/lib/content";
 import { resolvePricing } from "@/lib/pricing";
 import { Container } from "@/components/ui/Container";
 import { IconArrowRight, IconAlert, IconMail } from "@/components/icons";
+import { SignupForm } from "@/components/auth/SignupForm";
 
 export const metadata: Metadata = {
   title: "Get Started",
@@ -200,13 +201,7 @@ function AuthPanel({ mode, next }: { mode: "signup" | "login"; next: string }) {
       </div>
 
       {mode === "signup" ? (
-        <form action={signUpAction} className="space-y-4">
-          <input type="hidden" name="next" value={next} />
-          <Field label="Full name" name="name" type="text" autoComplete="name" required />
-          <Field label="Email" name="email" type="email" autoComplete="email" required />
-          <Field label="Password" name="password" type="password" autoComplete="new-password" required minLength={8} />
-          <SubmitButton label="Create account" />
-        </form>
+        <SignupForm next={next} />
       ) : (
         <form action={signInAction} className="space-y-4">
           <input type="hidden" name="next" value={next} />
