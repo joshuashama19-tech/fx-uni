@@ -3,6 +3,7 @@ import { Button } from "./ui/Button";
 import { Container } from "./ui/Container";
 import { Reveal } from "./ui/Reveal";
 import { HeroChartCard } from "./HeroChartCard";
+import { HeroWorkspaceVisual } from "./visuals/HeroWorkspaceVisual";
 import { IconArrowRight, IconCheck } from "./icons";
 
 export function Hero() {
@@ -55,8 +56,14 @@ export function Hero() {
           </Reveal>
         </div>
 
-        <Reveal delay={160} className="lg:col-span-5">
-          <HeroChartCard />
+        <Reveal delay={160} className="relative lg:col-span-5">
+          {/* Premium workspace backdrop (visual asset #1) — sits behind the
+              existing, unmodified chart mockup so the hero's hierarchy and
+              the mockup itself are untouched; this only adds atmosphere. */}
+          <HeroWorkspaceVisual />
+          <div className="relative z-10">
+            <HeroChartCard />
+          </div>
         </Reveal>
       </Container>
     </section>

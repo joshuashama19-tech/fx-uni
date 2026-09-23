@@ -2,6 +2,7 @@ import { insideExperience } from "@/lib/course-data";
 import { Container } from "./ui/Container";
 import { SectionHeading } from "./ui/SectionHeading";
 import { Reveal } from "./ui/Reveal";
+import { LearningExperienceVisual } from "./visuals/LearningExperienceVisual";
 import { IconBook, IconBrain, IconTarget, IconCheckCircle, IconRefresh, IconCheck } from "./icons";
 
 const flowIcons = [IconBook, IconBrain, IconTarget, IconCheckCircle, IconRefresh];
@@ -18,14 +19,25 @@ export function CoursePreviewSection() {
   return (
     <section className="bg-white py-20 sm:py-24">
       <Container>
-        <SectionHeading
-          eyebrow={insideExperience.eyebrow}
-          headline={insideExperience.headline}
-          subheadline={insideExperience.subheadline}
-        />
+        <div className="grid items-center gap-10 lg:grid-cols-12 lg:gap-12">
+          <div className="lg:col-span-6">
+            <SectionHeading
+              eyebrow={insideExperience.eyebrow}
+              headline={insideExperience.headline}
+              subheadline={insideExperience.subheadline}
+              align="left"
+            />
+          </div>
+          {/* Learning-experience visual (asset #2) — a laptop showing the
+              same FX University lesson UI as the mockup below, not a
+              generic/unrelated screen. */}
+          <Reveal delay={80} className="lg:col-span-6">
+            <LearningExperienceVisual />
+          </Reveal>
+        </div>
 
         {/* Flow strip: Learn -> Think -> Practice -> Check -> Track */}
-        <div className="relative mx-auto mt-12 grid max-w-4xl grid-cols-2 gap-3 sm:grid-cols-5 sm:gap-4">
+        <div className="relative mx-auto mt-14 grid max-w-4xl grid-cols-2 gap-3 sm:grid-cols-5 sm:gap-4">
           {insideExperience.flowSteps.map((step, i) => {
             const Icon = flowIcons[i % flowIcons.length];
             return (

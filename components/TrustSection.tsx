@@ -2,6 +2,7 @@ import { trust } from "@/lib/course-data";
 import { Container } from "./ui/Container";
 import { SectionHeading } from "./ui/SectionHeading";
 import { Reveal } from "./ui/Reveal";
+import { TrustPlatformVisual } from "./visuals/TrustPlatformVisual";
 import { IconLayers, IconTarget, IconRefresh, IconLock } from "./icons";
 
 const icons = [IconLayers, IconTarget, IconRefresh, IconLock];
@@ -15,7 +16,16 @@ export function TrustSection() {
   return (
     <section className="bg-ink-50 py-20 sm:py-24">
       <Container>
-        <SectionHeading headline={trust.headline} subheadline={trust.subheadline} />
+        <div className="grid items-center gap-10 lg:grid-cols-12 lg:gap-12">
+          <div className="lg:col-span-7">
+            <SectionHeading headline={trust.headline} subheadline={trust.subheadline} align="left" />
+          </div>
+          {/* Platform/trust visual (asset #4) — supports this trust/value
+              section directly, as requested. */}
+          <Reveal delay={80} className="lg:col-span-5">
+            <TrustPlatformVisual />
+          </Reveal>
+        </div>
 
         <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {trust.points.map((point, i) => {
