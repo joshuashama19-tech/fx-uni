@@ -48,6 +48,12 @@ export default async function ChecklistPage({ params }: { params: Promise<{ modu
         />
       </div>
 
+      {checklist.outro.length > 0 ? (
+        <div className="mt-6 max-w-[70ch] border-t border-ink-100 pt-6 text-sm text-ink-600">
+          <MarkdownBlocks blocks={checklist.outro} />
+        </div>
+      ) : null}
+
       <nav className="mt-4 border-t border-ink-100 pt-6 text-sm">
         <Link href={`/learn/${mod.slug}`} className="font-medium text-brand-600 hover:text-brand-700">
           ← Back to Module {mod.order}

@@ -25,8 +25,8 @@ export default async function LearnDashboardPage() {
         FX University — Forex Trading Course
       </h1>
       <p className="mt-2 max-w-2xl text-base leading-relaxed text-ink-600">
-        Ten modules, in order. Each module includes lessons, exercises, a quiz with an answer key, and a
-        completion checklist.
+        Ten modules, in order. Each module includes lessons, exercises, an interactive knowledge check with a
+        full answer review, and a completion checklist.
       </p>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2">

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLesson, getAdjacentLessons } from "@/lib/course-content";
+import { humanizeBlocks } from "@/lib/course-content-activities";
 import { requireCourseAccess } from "@/lib/access";
 import { isLessonCompleted, markLessonCompleteAction } from "@/lib/progress/actions";
 import { RecordLessonView } from "@/components/learn/RecordLessonView";
@@ -52,7 +53,11 @@ export default async function LessonPage({
       <h1 className="mt-2 text-2xl font-semibold tracking-tight text-ink-950 sm:text-3xl">{lesson.title}</h1>
 
       <div className="mt-8 max-w-[70ch]">
-        <MarkdownBlocks blocks={lesson.blocks} />
+        {/* humanizeBlocks() never rewrites lesson content on disk — it's a
+            render-time swap of any raw `NN-file.md` mention (rare; almost
+            every lesson has none) for a plain label, a no-op for every
+            block that has no such reference. See lib/course-content-activities.ts. */}
+        <MarkdownBlocks blocks={humanizeBlocks(lesson.blocks)} />
       </div>
 
       <LessonInteractions interactions={getLessonInteractions(moduleSlug, lessonSlug)} />

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getModule, listModules, lessonKey } from "@/lib/course-content";
-import { splitModuleWrapUp } from "@/lib/course-content-activities";
+import { splitModuleWrapUp, humanizeBlocks } from "@/lib/course-content-activities";
 import { requireCourseAccess } from "@/lib/access";
 import { getStudentProgress } from "@/lib/progress/actions";
 import { getModuleActivityStatus } from "@/lib/progress/activity-actions";
@@ -37,7 +37,7 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
   const nextModule = modIndex >= 0 && modIndex < modules.length - 1 ? modules[modIndex + 1] : null;
 
   const lessonsCompletedInModule = mod.lessons.filter((l) => progress.completedKeys.has(lessonKey(mod.slug, l.slug))).length;
-  const { keepSections, beforeYouMoveOn } = splitModuleWrapUp(mod);
+  const { keepSections, beforeList, afterList } = splitModuleWrapUp(mod);
 
   return (
     <div>
@@ -53,14 +53,14 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
       {mod.introBlocks.length > 0 ? (
         <section className="mt-8">
           <h2 className="text-lg font-semibold text-ink-950">Module Introduction</h2>
-          <MarkdownBlocks blocks={mod.introBlocks} />
+          <MarkdownBlocks blocks={humanizeBlocks(mod.introBlocks)} />
         </section>
       ) : null}
 
       {mod.objectivesBlocks.length > 0 ? (
         <section className="mt-6 rounded-xl border border-ink-100 bg-ink-50 p-5">
           <h2 className="text-lg font-semibold text-ink-950">Learning Objectives</h2>
-          <MarkdownBlocks blocks={mod.objectivesBlocks} />
+          <MarkdownBlocks blocks={humanizeBlocks(mod.objectivesBlocks)} />
         </section>
       ) : null}
 
@@ -97,7 +97,7 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
       </section>
 
       <section className="mt-10">
-        <h2 className="text-lg font-semibold text-ink-950">Module Activities</h2>
+        <h2 className="text-lg font-semibold text-ink-950">Practice &amp; Assessment</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <ModuleActivityCard
             href={`/learn/${mod.slug}/exercises`}
@@ -112,16 +112,16 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
             status={
               activity.quizSubmitted
                 ? { complete: true, label: `${activity.quizScore ?? 0}/${activity.quizTotal ?? 0}` }
-                : null
+                : { complete: false }
             }
           />
           <ModuleActivityCard
             href={`/learn/${mod.slug}/checklist`}
-            title="Checklist"
+            title="Completion Checklist"
             description="Confirm you're ready to continue"
             status={{
               complete: activity.checklistComplete,
-              label: activity.checklistComplete ? undefined : `${activity.checklistCheckedCount}/${activity.checklistTotalItems}`,
+              label: activity.checklistComplete ? undefined : `${activity.checklistCheckedCount}/${activity.checklistTotalItems} items`,
             }}
           />
         </div>
@@ -130,11 +130,12 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
       {keepSections.map((section) => (
         <section key={section.title} className="mt-10">
           <h2 className="text-lg font-semibold text-ink-950">{section.title}</h2>
-          <MarkdownBlocks blocks={section.blocks} />
+          <MarkdownBlocks blocks={humanizeBlocks(section.blocks)} />
         </section>
       ))}
 
       <ModuleCompletionPanel
+        moduleOrder={mod.order}
         lessonsCompleted={lessonsCompletedInModule}
         lessonsTotal={mod.lessons.length}
         exercisesComplete={activity.exercisesComplete}
@@ -144,7 +145,8 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
         checklistComplete={activity.checklistComplete}
         checklistCheckedCount={activity.checklistCheckedCount}
         checklistTotalItems={activity.checklistTotalItems}
-        beforeYouMoveOn={beforeYouMoveOn}
+        beforeList={beforeList}
+        afterList={afterList}
         nextModuleHref={nextModule ? `/learn/${nextModule.slug}` : null}
         nextModuleTitle={nextModule ? `Module ${nextModule.order}` : null}
       />

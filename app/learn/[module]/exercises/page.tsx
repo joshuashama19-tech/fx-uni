@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getModule, getModuleDocument } from "@/lib/course-content";
-import { dropFileReferenceBlocks } from "@/lib/course-content-activities";
+import { prepareExerciseBlocks } from "@/lib/course-content-activities";
 import { requireCourseAccess } from "@/lib/access";
 import { isExercisesCompleted, markExercisesCompleteAction } from "@/lib/progress/activity-actions";
 import { MarkdownBlocks } from "@/lib/markdown/render";
@@ -18,7 +18,7 @@ export default async function ExercisesPage({ params }: { params: Promise<{ modu
 
   const { user } = await requireCourseAccess();
   const completed = await isExercisesCompleted(user.id, moduleSlug);
-  const blocks = dropFileReferenceBlocks(doc.blocks);
+  const blocks = prepareExerciseBlocks(doc.blocks);
 
   return (
     <article>

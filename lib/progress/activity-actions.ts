@@ -34,10 +34,19 @@ export async function markExercisesCompleteAction(formData: FormData): Promise<v
   if (!getModule(moduleSlug)) return;
 
   const supabase = await createClient();
-  await supabase.from("module_exercise_completions").upsert(
+  const { error } = await supabase.from("module_exercise_completions").upsert(
     { user_id: user.id, course_id: getCourseId(), module_slug: moduleSlug },
     { onConflict: "user_id,course_id,module_slug", ignoreDuplicates: true }
   );
+  // Every write in this file now checks {error} and throws rather than
+  // silently continuing — found during the checklist-persistence
+  // investigation that NONE of them did, which meant a denied/failed write
+  // (RLS, a dropped connection, anything) would still return as if it had
+  // succeeded, and the calling page would go on to render a "Complete"
+  // state that the database never actually recorded. Throwing here lets
+  // the Server Action's caller (a plain <form>, so Next.js's own error
+  // boundary) surface the failure instead of silently lying to the student.
+  if (error) throw new Error(`Couldn't save exercise completion: ${error.message}`);
 
   revalidatePath(`/learn/${moduleSlug}/exercises`);
   revalidatePath(`/learn/${moduleSlug}`);
@@ -99,13 +108,17 @@ export async function toggleChecklistItemAction(
   if (!validIds.has(itemId)) throw new Error("Unknown checklist item");
 
   const supabase = await createClient();
-  const { data: existing } = await supabase
+  const { data: existing, error: readError } = await supabase
     .from("module_checklist_progress")
     .select("checked_items")
     .eq("user_id", user.id)
     .eq("course_id", getCourseId())
     .eq("module_slug", moduleSlug)
     .maybeSingle();
+  // A failed read must not be treated as "no items checked yet" — that
+  // would silently drop every other item the student already checked the
+  // next time they toggle one.
+  if (readError) throw new Error(`Couldn't load checklist progress: ${readError.message}`);
 
   const current = new Set<string>(existing?.checked_items ?? []);
   if (checked) current.add(itemId);
@@ -114,7 +127,7 @@ export async function toggleChecklistItemAction(
   const checkedItems = [...current];
   const completedAt = checkedItems.length === checklist.totalItems ? new Date().toISOString() : null;
 
-  await supabase.from("module_checklist_progress").upsert(
+  const { error: writeError } = await supabase.from("module_checklist_progress").upsert(
     {
       user_id: user.id,
       course_id: getCourseId(),
@@ -124,6 +137,7 @@ export async function toggleChecklistItemAction(
     },
     { onConflict: "user_id,course_id,module_slug" }
   );
+  if (writeError) throw new Error(`Couldn't save checklist progress: ${writeError.message}`);
 
   revalidatePath(`/learn/${moduleSlug}/checklist`);
   revalidatePath(`/learn/${moduleSlug}`);
@@ -177,10 +191,15 @@ export async function startQuizAttemptAction(moduleSlug: string): Promise<void> 
   if (!getQuiz(moduleSlug)) return;
 
   const supabase = await createClient();
-  await supabase.from("quiz_attempts").upsert(
+  const { error } = await supabase.from("quiz_attempts").upsert(
     { user_id: user.id, course_id: getCourseId(), module_slug: moduleSlug },
     { onConflict: "user_id,course_id,module_slug", ignoreDuplicates: true }
   );
+  // Genuinely best-effort (the caller already wraps this call in .catch(() => {})
+  // — a missed "started_at" timestamp isn't worth surfacing to the student),
+  // but still throw on error for consistency with every other write in this
+  // file and so the failure is at least visible in server logs.
+  if (error) throw new Error(`Couldn't record quiz attempt start: ${error.message}`);
 }
 
 /**
@@ -220,7 +239,7 @@ export async function submitQuizAction(moduleSlug: string, answers: QuizAnswerIn
   const total = quiz.questions.length;
 
   const supabase = await createClient();
-  await supabase.from("quiz_attempts").upsert(
+  const { error } = await supabase.from("quiz_attempts").upsert(
     {
       user_id: user.id,
       course_id: getCourseId(),
@@ -232,6 +251,11 @@ export async function submitQuizAction(moduleSlug: string, answers: QuizAnswerIn
     },
     { onConflict: "user_id,course_id,module_slug" }
   );
+  // If this write fails, the student must NOT be shown a score/review that
+  // was never actually saved — throw so QuizRunner's submit handler surfaces
+  // an error instead of quietly moving to a review screen that won't still
+  // be there on the next visit.
+  if (error) throw new Error(`Couldn't save your quiz submission: ${error.message}`);
 
   revalidatePath(`/learn/${moduleSlug}/quiz`);
   revalidatePath(`/learn/${moduleSlug}`);
@@ -255,13 +279,14 @@ export async function selfAssessQuizAnswerAction(
   }
 
   const supabase = await createClient();
-  const { data: existing } = await supabase
+  const { data: existing, error: readError } = await supabase
     .from("quiz_attempts")
     .select("answers, submitted_at")
     .eq("user_id", user.id)
     .eq("course_id", getCourseId())
     .eq("module_slug", moduleSlug)
     .maybeSingle();
+  if (readError) throw new Error(`Couldn't load your quiz attempt: ${readError.message}`);
 
   if (!existing?.submitted_at) throw new Error("Submit the quiz before self-assessing an answer");
 
@@ -269,12 +294,13 @@ export async function selfAssessQuizAnswerAction(
   const updated = answers.map((a) => (a.num === num ? { ...a, selfCorrect } : a));
   const score = updated.filter((a) => a.autoCorrect === true || a.selfCorrect === true).length;
 
-  await supabase
+  const { error: writeError } = await supabase
     .from("quiz_attempts")
     .update({ answers: updated, score })
     .eq("user_id", user.id)
     .eq("course_id", getCourseId())
     .eq("module_slug", moduleSlug);
+  if (writeError) throw new Error(`Couldn't save your self-assessment: ${writeError.message}`);
 
   revalidatePath(`/learn/${moduleSlug}/quiz`);
   revalidatePath(`/learn/${moduleSlug}`);

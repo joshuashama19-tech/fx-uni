@@ -20,6 +20,7 @@ function StatusRow({ label, complete, detail }: { label: string; complete: boole
 }
 
 export function ModuleCompletionPanel({
+  moduleOrder,
   lessonsCompleted,
   lessonsTotal,
   exercisesComplete,
@@ -29,10 +30,12 @@ export function ModuleCompletionPanel({
   checklistComplete,
   checklistCheckedCount,
   checklistTotalItems,
-  beforeYouMoveOn,
+  beforeList,
+  afterList,
   nextModuleHref,
   nextModuleTitle,
 }: {
+  moduleOrder: number;
   lessonsCompleted: number;
   lessonsTotal: number;
   exercisesComplete: boolean;
@@ -42,7 +45,9 @@ export function ModuleCompletionPanel({
   checklistComplete: boolean;
   checklistCheckedCount: number;
   checklistTotalItems: number;
-  beforeYouMoveOn: Block[] | null;
+  /** Content before/after the module's own file-instruction list, already split and humanized by splitModuleWrapUp() — see that function's doc comment for why the split matters (a dangling "...three things to complete:" lead-in otherwise). */
+  beforeList: Block[];
+  afterList: Block[];
   nextModuleHref: string | null;
   nextModuleTitle: string | null;
 }) {
@@ -51,15 +56,33 @@ export function ModuleCompletionPanel({
 
   return (
     <section className="mt-10 rounded-2xl border border-ink-100 bg-ink-50/60 p-6 sm:p-7">
-      <h2 className="text-lg font-semibold tracking-tight text-ink-950">Module Completion</h2>
+      <h2 className="text-lg font-semibold tracking-tight text-ink-950">Before You Move On</h2>
 
-      {beforeYouMoveOn && beforeYouMoveOn.length > 0 ? (
-        <div className="mt-3 max-w-[70ch] text-sm">
-          <MarkdownBlocks blocks={beforeYouMoveOn} />
+      {beforeList.length > 0 ? (
+        <div className="mt-3 max-w-[70ch] text-sm text-ink-600">
+          <MarkdownBlocks blocks={beforeList} />
         </div>
       ) : null}
 
-      <div className="mt-4 rounded-xl border border-ink-100 bg-white px-5">
+      {/* This short list is our own UI copy — not sourced from markdown —
+          so it can never leak a raw filename. It replaces each module's own
+          "work through 02-exercises.md..." style instructions with the
+          equivalent, in plain student-facing language, spliced in exactly
+          where that instruction list used to be. */}
+      <ol className="mt-3 max-w-[70ch] list-decimal space-y-1 pl-5 text-sm leading-relaxed text-ink-700">
+        <li>Complete the Module {moduleOrder} exercises.</li>
+        <li>Complete the Module {moduleOrder} Knowledge Check.</li>
+        <li>Complete the Module {moduleOrder} Completion Checklist.</li>
+      </ol>
+
+      {afterList.length > 0 ? (
+        <div className="mt-3 max-w-[70ch] text-sm text-ink-600">
+          <MarkdownBlocks blocks={afterList} />
+        </div>
+      ) : null}
+
+      <h3 className="mt-6 text-xs font-semibold uppercase tracking-wide text-ink-500">Module Completion</h3>
+      <div className="mt-2 rounded-xl border border-ink-100 bg-white px-5">
         <StatusRow label="Lessons" complete={lessonsComplete} detail={`${lessonsCompleted} / ${lessonsTotal}`} />
         <StatusRow label="Exercises" complete={exercisesComplete} detail={exercisesComplete ? "Complete" : "Not started"} />
         <StatusRow

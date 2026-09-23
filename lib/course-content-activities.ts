@@ -8,7 +8,7 @@ import { getModule, getModuleDocument, listModuleFolders, slugify } from "./cour
 // student-facing structures (quiz questions, grouped checklist items), and
 // scrubs raw internal filenames (01-content.md, 02-exercises.md, etc.) out
 // of anything rendered to the student — see humanizeFileRefInline() and
-// dropFileReferenceBlocks() below for exactly how and why.
+// humanizeBlocks() below for exactly how and why.
 //
 // The quiz/answer-key format ("**N. Multiple choice.** ...", "A) ...",
 // "**N. Answer: B) ...**" / "**N. Answer guide.** ...") is consistent
@@ -76,47 +76,116 @@ function inlineContainsFileRef(nodes: InlineNode[]): boolean {
 }
 
 /**
- * Drops any paragraph/list block that mentions one of this course's own
- * markdown files by name — these are always pure "go open 02-exercises.md
- * next" navigation instructions, fully superseded by the real Exercises/
- * Knowledge Check/Checklist links the student-facing UI provides instead
- * (the Module Activities cards, the Module Completion panel). Every other
- * block — including the substantive educational sentences that happen to
- * share a section with one of these — is kept exactly as authored. This is
- * intentionally narrow: it only ever removes a block that does nothing but
- * point at a raw filename, never a block that teaches something.
+ * Applies humanizeFileRefInline to every inline slot of every block —
+ * paragraphs, blockquotes, headings, list/checklist items, table cells.
+ * Unlike the old drop-the-whole-block approach this replaced, it never
+ * removes a sentence: every block that isn't purely a raw-filename
+ * cross-reference keeps every word it was authored with, just with any
+ * `01-content.md`-style mention swapped for its human label (see
+ * fileRefLabel() above). Safe to run over content that has no file
+ * references at all — those blocks pass through unchanged.
  */
-export function dropFileReferenceBlocks(blocks: Block[]): Block[] {
-  return blocks.filter((block) => {
-    if (block.type === "paragraph" || block.type === "blockquote") {
-      return !inlineContainsFileRef(block.children);
+export function humanizeBlocks(blocks: Block[]): Block[] {
+  return blocks.map((block): Block => {
+    switch (block.type) {
+      case "heading":
+      case "subhead":
+      case "paragraph":
+      case "blockquote":
+        return { ...block, children: humanizeFileRefInline(block.children) };
+      case "list":
+      case "checklist":
+        return { ...block, items: block.items.map((item) => humanizeFileRefInline(item)) };
+      case "table":
+        return {
+          ...block,
+          header: block.header.map((cell) => humanizeFileRefInline(cell)),
+          rows: block.rows.map((row) => row.map((cell) => humanizeFileRefInline(cell))),
+        };
+      default:
+        return block;
     }
-    if (block.type === "list" || block.type === "checklist") {
-      return !block.items.some((item) => inlineContainsFileRef(item));
-    }
-    return true;
   });
+}
+
+/**
+ * True for a `list` block whose items are nothing but "go open this file"
+ * navigation (every item names one of this course's own files) — the
+ * pattern used by every module 1-8's "Before You Move On" 3-item list
+ * ("Work through `02-exercises.md`...", "Complete the `03-quiz.md`...",
+ * "Go through the full `05-checklist.md`..."). humanizeBlocks() can't turn
+ * these into clean prose in place — several items already have their own
+ * leading "the"/"the full" article right before the file reference, so a
+ * word-for-word swap for a label that itself starts with "the" produces
+ * "the the Knowledge Check" — so splitModuleWrapUp() below drops a block
+ * like this entirely and the Module Completion panel renders its own
+ * equivalent instruction list instead (clean, and impossible to leak a
+ * filename from, since it's not sourced from markdown at all).
+ */
+function isPureFileInstructionList(block: Block): boolean {
+  return block.type === "list" && block.items.length > 0 && block.items.every((item) => inlineContainsFileRef(item));
 }
 
 /**
  * Pulls the "Before You Move On" wrap-up section (present at the end of
  * every module's 01-content.md) out of the module's other wrap-up sections
  * (e.g. "Key Takeaways", which is unaffected and keeps rendering on the
- * module page as before), and strips its raw-filename navigation
- * instructions per dropFileReferenceBlocks() above — the Module Completion
- * section (app/learn/[module]/page.tsx) renders what's left (the module's
- * own educational framing/disclaimer sentences, verbatim) above a real,
- * computed completion status panel that replaces the stripped instructions.
+ * module page as before). Drops only the pure file-navigation list
+ * (isPureFileInstructionList() above — modules 1-8's numbered "work through
+ * X" list; the Module Completion panel renders its own replacement for
+ * this), and humanizes (never drops) everything else in the section,
+ * including modules 9-10's single paragraph that mixes a file-navigation
+ * clause with a real, module-specific transition sentence — splitting that
+ * one at the sentence level isn't reliable from the parsed block tree, and
+ * word-swapping it in place keeps 100% of the original sentence, just
+ * without the raw filenames.
  */
 export function splitModuleWrapUp(mod: { wrapUpSections: { title: string; blocks: Block[] }[] }): {
   keepSections: { title: string; blocks: Block[] }[];
-  beforeYouMoveOn: Block[] | null;
+  /**
+   * Content before the dropped instruction list (module 1-8's own lead-in
+   * sentence — "This module ends with three things to actually complete
+   * before starting Module N — not just read:" — which ends in a colon
+   * that's meant to introduce a list, so it has to stay paired with
+   * whatever list follows it). Empty when there was no list to split
+   * around (modules 9-10, or a module with no "Before You Move On"
+   * section at all).
+   */
+  beforeList: Block[];
+  /** Content after the dropped instruction list — or everything in the section, when there was no list (modules 9-10's single fused paragraph). */
+  afterList: Block[];
+  /** True when a pure file-instruction list was actually found and dropped (modules 1-8) — tells the caller whether it's filling a real gap or just adding a redundant reminder (modules 9-10). */
+  hadInstructionList: boolean;
 } {
   const idx = mod.wrapUpSections.findIndex((s) => s.title.trim().toLowerCase() === "before you move on");
-  if (idx === -1) return { keepSections: mod.wrapUpSections, beforeYouMoveOn: null };
+  if (idx === -1) return { keepSections: mod.wrapUpSections, beforeList: [], afterList: [], hadInstructionList: false };
   const section = mod.wrapUpSections[idx];
   const keepSections = mod.wrapUpSections.filter((_, i) => i !== idx);
-  return { keepSections, beforeYouMoveOn: dropFileReferenceBlocks(section.blocks) };
+  const listIdx = section.blocks.findIndex((b) => isPureFileInstructionList(b));
+  if (listIdx === -1) {
+    return { keepSections, beforeList: [], afterList: humanizeBlocks(section.blocks), hadInstructionList: false };
+  }
+  return {
+    keepSections,
+    beforeList: humanizeBlocks(section.blocks.slice(0, listIdx)),
+    afterList: humanizeBlocks(section.blocks.slice(listIdx + 1)),
+    hadInstructionList: true,
+  };
+}
+
+/**
+ * Drops only the document's own first-level heading (already shown as the
+ * page's own styled <h1> — e.g. ExercisesPage — so keeping it would render
+ * the title twice), then humanizes every remaining block. Used for
+ * Exercises specifically: unlike the quiz/checklist, its body is rendered
+ * close to verbatim (framing paragraph + the exercises themselves), so
+ * every sentence — including the ones that happen to name a sibling file —
+ * is kept, just with the filename swapped for a label.
+ */
+export function prepareExerciseBlocks(blocks: Block[]): Block[] {
+  const firstHeadingIdx = blocks.findIndex((b) => b.type === "heading" && b.level === 1);
+  const withoutTitle = firstHeadingIdx === -1 ? blocks : blocks.filter((_, i) => i !== firstHeadingIdx);
+  return humanizeBlocks(withoutTitle);
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +211,16 @@ export interface ParsedChecklist {
   intro: Block[];
   groups: ChecklistGroup[];
   totalItems: number;
+  /**
+   * Blocks after the last "###" group's items (every module's closing
+   * "you're ready for the next module" / "go back and re-read" paragraph,
+   * often after an "---" divider). The original loop here only ever
+   * collected pre-group blocks into `intro` and silently discarded
+   * anything after the last group — dropping this real closing content on
+   * every module's checklist page. Now collected and humanized like
+   * everything else, instead of lost.
+   */
+  outro: Block[];
 }
 
 export const getChecklist = cache((moduleSlug: string): ParsedChecklist | null => {
@@ -150,6 +229,7 @@ export const getChecklist = cache((moduleSlug: string): ParsedChecklist | null =
   if (!mod || !doc) return null;
 
   const intro: Block[] = [];
+  const outro: Block[] = [];
   const groups: ChecklistGroup[] = [];
   let current: ChecklistGroup | null = null;
 
@@ -182,11 +262,16 @@ export const getChecklist = cache((moduleSlug: string): ParsedChecklist | null =
       // Anything before the first "###" group (the checklist's own short
       // framing paragraph) — keep as page intro.
       intro.push(block);
+    } else if (block.type !== "checklist") {
+      // Anything after the last group that isn't itself a checklist block
+      // (e.g. the "---" divider and closing paragraph every module ends
+      // with) — keep as page outro, rendered after the interactive list.
+      outro.push(block);
     }
   }
 
   const totalItems = groups.reduce((sum, g) => sum + g.items.length, 0);
-  return { moduleSlug, title: doc.title, intro, groups, totalItems };
+  return { moduleSlug, title: doc.title, intro, groups, totalItems, outro: humanizeBlocks(outro) };
 });
 
 // ---------------------------------------------------------------------------

@@ -29,7 +29,9 @@ export function QuizRunner({
 }) {
   const [result, setResult] = useState<QuizResult | null>(initialResult);
   const [answers, setAnswers] = useState<Record<number, QuizAnswerInput>>({});
+  const [index, setIndex] = useState(0);
   const [submitting, startSubmitTransition] = useTransition();
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!result) {
@@ -40,45 +42,116 @@ export function QuizRunner({
   }, []);
 
   if (result) {
-    return <QuizReview moduleSlug={moduleSlug} result={result} onRetake={() => setResult(null)} />;
+    return (
+      <QuizReview
+        moduleSlug={moduleSlug}
+        result={result}
+        onRetake={() => {
+          setResult(null);
+          setIndex(0);
+        }}
+      />
+    );
   }
 
+  const total = questions.length;
+  const current = questions[index];
   const answeredCount = Object.keys(answers).length;
+  const isLast = index === total - 1;
 
   function setAnswer(num: number, input: QuizAnswerInput) {
     setAnswers((prev) => ({ ...prev, [num]: input }));
   }
 
   function handleSubmit() {
+    setSubmitError(null);
     startSubmitTransition(async () => {
-      const payload = questions.map((q) => answers[q.num] ?? { num: q.num });
-      const graded = await submitQuizAction(moduleSlug, payload);
-      setResult(graded);
+      try {
+        const payload = questions.map((q) => answers[q.num] ?? { num: q.num });
+        const graded = await submitQuizAction(moduleSlug, payload);
+        setResult(graded);
+      } catch {
+        setSubmitError("Couldn't submit the quiz. Check your connection and try again.");
+      }
     });
   }
 
   return (
     <div>
-      <p className="mb-6 text-sm text-ink-500">
-        {answeredCount} of {questions.length} answered. Work through every question, then submit — you&apos;ll see your
-        score and can review each answer afterward.
-      </p>
-
-      <div className="space-y-6">
-        {questions.map((q) => (
-          <QuestionInput key={q.num} question={q} value={answers[q.num]} onChange={(a) => setAnswer(q.num, a)} />
-        ))}
+      <div className="mb-6">
+        <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-ink-500">
+          <span>
+            Question {index + 1} of {total}
+          </span>
+          <span>{answeredCount} answered</span>
+        </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink-100">
+          <div
+            className="h-full rounded-full bg-brand-600 transition-[width]"
+            style={{ width: `${((index + 1) / total) * 100}%` }}
+          />
+        </div>
       </div>
 
-      <div className="mt-8 border-t border-ink-100 pt-6">
+      <QuestionInput question={current} value={answers[current.num]} onChange={(a) => setAnswer(current.num, a)} />
+
+      {submitError ? (
+        <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-800">
+          {submitError}
+        </p>
+      ) : null}
+
+      <div className="mt-6 flex items-center justify-between gap-3 border-t border-ink-100 pt-6">
         <button
           type="button"
-          onClick={handleSubmit}
-          disabled={submitting}
-          className="min-h-11 rounded-full bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+          onClick={() => setIndex((i) => Math.max(0, i - 1))}
+          disabled={index === 0}
+          className="min-h-11 rounded-full border border-ink-200 px-5 py-2.5 text-sm font-semibold text-ink-700 hover:border-ink-300 disabled:opacity-40"
         >
-          {submitting ? "Submitting…" : "Submit Quiz"}
+          ← Previous
         </button>
+
+        {isLast ? (
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="min-h-11 rounded-full bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+          >
+            {submitting ? "Submitting…" : "Submit Quiz"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIndex((i) => Math.min(total - 1, i + 1))}
+            className="min-h-11 rounded-full bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
+          >
+            Next →
+          </button>
+        )}
+      </div>
+
+      {/* A row of question dots doubles as a jump-to-question nav — useful
+          once a student has gone back and forth, and gives a persistent
+          sense of the whole quiz's shape (never just a lone progress bar). */}
+      <div className="mt-6 flex flex-wrap gap-1.5" role="list" aria-label="Jump to question">
+        {questions.map((q, i) => {
+          const answered = answers[q.num] !== undefined;
+          const isCurrent = i === index;
+          return (
+            <button
+              key={q.num}
+              type="button"
+              role="listitem"
+              aria-label={`Question ${i + 1}${answered ? ", answered" : ""}`}
+              aria-current={isCurrent}
+              onClick={() => setIndex(i)}
+              className={`h-2.5 w-2.5 flex-none rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 ${
+                isCurrent ? "bg-brand-600" : answered ? "bg-brand-300" : "bg-ink-200"
+              }`}
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -95,9 +168,7 @@ function QuestionInput({
 }) {
   return (
     <div className="rounded-xl border border-ink-100 p-5">
-      <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">
-        Question {question.num} · {TYPE_LABEL[question.type]}
-      </p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">{TYPE_LABEL[question.type]}</p>
       <p className="mt-2 text-base font-medium leading-relaxed text-ink-900">{question.prompt}</p>
 
       {question.type === "mc" && question.options ? (
@@ -164,42 +235,70 @@ function QuizReview({
 }) {
   const [current, setCurrent] = useState(result);
   const [pending, startTransition] = useTransition();
+  const [showReview, setShowReview] = useState(false);
+  const [assessError, setAssessError] = useState<string | null>(null);
 
   function selfAssess(num: number, correct: boolean) {
+    setAssessError(null);
     startTransition(async () => {
-      const updated = await selfAssessQuizAnswerAction(moduleSlug, num, correct);
-      setCurrent(updated);
+      try {
+        const updated = await selfAssessQuizAnswerAction(moduleSlug, num, correct);
+        setCurrent(updated);
+      } catch {
+        setAssessError("Couldn't save that. Check your connection and try again.");
+      }
     });
   }
 
   const openTotal = current.questions.filter((q) => q.type === "open").length;
   const openAssessed = current.questions.filter((q) => q.type === "open" && q.selfCorrect !== null).length;
+  const percent = current.total > 0 ? Math.round((current.score / current.total) * 100) : 0;
 
   return (
     <div>
-      <div className="mb-6 rounded-xl border border-ink-100 bg-ink-50/60 p-5">
-        <p className="text-sm font-semibold text-ink-900">
-          Score: {current.score} / {current.total}
+      {/* A distinct result step before the per-question review, matching how
+          the course's own answer keys already frame these checkpoints as a
+          signal to act on, not just a score to see: read the number, then
+          choose to go look at why. */}
+      <div className="rounded-2xl border border-ink-100 bg-ink-50/60 p-6 text-center sm:p-7">
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Result</p>
+        <p className="mt-2 text-4xl font-semibold tracking-tight text-ink-950">
+          {current.score} / {current.total}
         </p>
+        <p className="mt-1 text-sm text-ink-600">{percent}%</p>
         {openTotal > 0 ? (
-          <p className="mt-1 text-sm text-ink-600">
-            {openAssessed} of {openTotal} short-answer questions self-reviewed below — your score updates as you go.
+          <p className="mt-3 text-sm text-ink-600">
+            {openAssessed} of {openTotal} short-answer questions self-reviewed — your score updates as you go.
           </p>
         ) : null}
-        <button
-          type="button"
-          onClick={onRetake}
-          className="mt-3 text-sm font-semibold text-brand-600 hover:text-brand-700"
-        >
-          Retake this quiz
-        </button>
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-4">
+          {!showReview ? (
+            <button
+              type="button"
+              onClick={() => setShowReview(true)}
+              className="min-h-11 rounded-full bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
+            >
+              Review Your Answers
+            </button>
+          ) : null}
+          <button type="button" onClick={onRetake} className="text-sm font-semibold text-brand-600 hover:text-brand-700">
+            Retake this quiz
+          </button>
+        </div>
       </div>
 
-      <div className="space-y-6">
-        {current.questions.map((q) => (
-          <ReviewQuestion key={q.num} question={q} pending={pending} onSelfAssess={(c) => selfAssess(q.num, c)} />
-        ))}
-      </div>
+      {showReview ? (
+        <div className="mt-6 space-y-6">
+          {assessError ? (
+            <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-800">
+              {assessError}
+            </p>
+          ) : null}
+          {current.questions.map((q) => (
+            <ReviewQuestion key={q.num} question={q} pending={pending} onSelfAssess={(c) => selfAssess(q.num, c)} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
