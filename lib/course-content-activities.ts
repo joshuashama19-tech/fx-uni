@@ -33,9 +33,16 @@ const FILE_LABELS: Record<string, string> = {
   "03-quiz": "the Knowledge Check",
   "04-answer-key": "the answer key",
   "05-checklist": "the Completion Checklist",
+  // Referenced once, in Module 1's "Before You Move On" risk-disclosure
+  // sentence ("see the full risk disclosure in `course-overview.md`") —
+  // not one of the five per-module files, but the same rule applies: never
+  // show the raw filename to a student. humanizeFileRefInline() already
+  // recurses into a `link` node's children, so this is enough to catch it
+  // whether it's wrapped in a markdown link (as it is here) or bare code.
+  "course-overview": "the course overview",
 };
 
-const FILE_REF_RE = /^(0[1-5]-[a-z-]+)\.md$/;
+const FILE_REF_RE = /^(0[1-5]-[a-z-]+|course-overview)\.md$/;
 
 function fileRefLabel(codeValue: string): string | null {
   const m = FILE_REF_RE.exec(codeValue.trim());
@@ -223,6 +230,32 @@ export interface ParsedChecklist {
   outro: Block[];
 }
 
+/**
+ * Every module's checklist "Practice completed" group has the same 3 items,
+ * e.g. (module 1): "I completed all 11 exercises in `02-exercises.md`.",
+ * "I completed the 15-question checkpoint in `03-quiz.md` before looking at
+ * the answers.", "I checked my answers against `04-answer-key.md` and
+ * re-read any lesson connected to a question I missed." A plain filename
+ * swap (humanizeFileRefInline) still leaves that third item describing an
+ * internal "answer key" the student looks things up against, which is
+ * exactly the framing the student-facing UI shouldn't use — the Knowledge
+ * Check's own review screen is what a student actually interacts with, not
+ * a standalone answer key. So this group's 3 items are replaced outright
+ * with fixed wrapper copy (not sourced from markdown, so nothing to leak)
+ * that talks about "Knowledge Check results" instead. Returns null for
+ * every other group, which keeps the parsed original text (word-swapped by
+ * humanizeFileRefInline as usual).
+ */
+function practiceCompletedOverrides(groupTitle: string, moduleOrder: number): InlineNode[][] | null {
+  if (groupTitle.trim().toLowerCase() !== "practice completed") return null;
+  const text = (value: string): InlineNode[] => [{ type: "text", value }];
+  return [
+    text(`I completed the Module ${moduleOrder} exercises.`),
+    text(`I completed the Module ${moduleOrder} Knowledge Check before reviewing my results.`),
+    text("I reviewed my Knowledge Check results and revisited any lessons connected to questions I missed."),
+  ];
+}
+
 export const getChecklist = cache((moduleSlug: string): ParsedChecklist | null => {
   const mod = getModule(moduleSlug);
   const doc = getModuleDocument(moduleSlug, "checklist");
@@ -250,10 +283,19 @@ export const getChecklist = cache((moduleSlug: string): ParsedChecklist | null =
     }
     if (block.type === "checklist" && current) {
       const groupSlug = slugify(current.title);
+      const overrides = practiceCompletedOverrides(current.title, mod.order);
       for (const itemNodes of block.items) {
+        const index = current.items.length;
         current.items.push({
-          id: `${groupSlug}-${current.items.length}`,
-          text: humanizeFileRefInline(itemNodes),
+          id: `${groupSlug}-${index}`,
+          // "Practice completed" items are replaced with our own wrapper
+          // copy below, not humanized in place — see
+          // practiceCompletedOverrides() for why a word-swap alone isn't
+          // enough here. The item's own id is still derived purely from
+          // position (group slug + index), same as every other group, so
+          // a student's already-persisted checked state for these 3 items
+          // isn't affected by this — the id never depended on the text.
+          text: overrides?.[index] ?? humanizeFileRefInline(itemNodes),
         });
       }
       continue;

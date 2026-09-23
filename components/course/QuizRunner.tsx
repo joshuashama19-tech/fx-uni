@@ -235,7 +235,6 @@ function QuizReview({
 }) {
   const [current, setCurrent] = useState(result);
   const [pending, startTransition] = useTransition();
-  const [showReview, setShowReview] = useState(false);
   const [assessError, setAssessError] = useState<string | null>(null);
 
   function selfAssess(num: number, correct: boolean) {
@@ -256,49 +255,41 @@ function QuizReview({
 
   return (
     <div>
-      {/* A distinct result step before the per-question review, matching how
-          the course's own answer keys already frame these checkpoints as a
-          signal to act on, not just a score to see: read the number, then
-          choose to go look at why. */}
+      {/* A distinct result step ahead of the per-question review — the
+          score lands first, on its own, before the detail below it. */}
       <div className="rounded-2xl border border-ink-100 bg-ink-50/60 p-6 text-center sm:p-7">
-        <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Result</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Knowledge Check Complete</p>
         <p className="mt-2 text-4xl font-semibold tracking-tight text-ink-950">
           {current.score} / {current.total}
         </p>
         <p className="mt-1 text-sm text-ink-600">{percent}%</p>
+        <p className="mt-3 text-sm text-ink-600">
+          Review your answers below and revisit any lessons where you missed a question.
+        </p>
         {openTotal > 0 ? (
-          <p className="mt-3 text-sm text-ink-600">
+          <p className="mt-1 text-sm text-ink-600">
             {openAssessed} of {openTotal} short-answer questions self-reviewed — your score updates as you go.
           </p>
         ) : null}
-        <div className="mt-5 flex flex-wrap items-center justify-center gap-4">
-          {!showReview ? (
-            <button
-              type="button"
-              onClick={() => setShowReview(true)}
-              className="min-h-11 rounded-full bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
-            >
-              Review Your Answers
-            </button>
-          ) : null}
-          <button type="button" onClick={onRetake} className="text-sm font-semibold text-brand-600 hover:text-brand-700">
-            Retake this quiz
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onRetake}
+          className="mt-4 text-sm font-semibold text-brand-600 hover:text-brand-700"
+        >
+          Retake this quiz
+        </button>
       </div>
 
-      {showReview ? (
-        <div className="mt-6 space-y-6">
-          {assessError ? (
-            <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-800">
-              {assessError}
-            </p>
-          ) : null}
-          {current.questions.map((q) => (
-            <ReviewQuestion key={q.num} question={q} pending={pending} onSelfAssess={(c) => selfAssess(q.num, c)} />
-          ))}
-        </div>
-      ) : null}
+      <div className="mt-6 space-y-6">
+        {assessError ? (
+          <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-800">
+            {assessError}
+          </p>
+        ) : null}
+        {current.questions.map((q) => (
+          <ReviewQuestion key={q.num} question={q} pending={pending} onSelfAssess={(c) => selfAssess(q.num, c)} />
+        ))}
+      </div>
     </div>
   );
 }

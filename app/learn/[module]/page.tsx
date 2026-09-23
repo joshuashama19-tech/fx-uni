@@ -2,12 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getModule, listModules, lessonKey } from "@/lib/course-content";
-import { splitModuleWrapUp, humanizeBlocks } from "@/lib/course-content-activities";
+import { splitModuleWrapUp, humanizeBlocks, getQuiz } from "@/lib/course-content-activities";
 import { requireCourseAccess } from "@/lib/access";
 import { getStudentProgress } from "@/lib/progress/actions";
 import { getModuleActivityStatus } from "@/lib/progress/activity-actions";
 import { MarkdownBlocks } from "@/lib/markdown/render";
-import { ModuleActivityCard } from "@/components/course/ModuleActivityCard";
 import { ModuleCompletionPanel } from "@/components/course/ModuleCompletionPanel";
 import { IconArrowRight, IconCheckCircle } from "@/components/icons";
 
@@ -38,6 +37,7 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
 
   const lessonsCompletedInModule = mod.lessons.filter((l) => progress.completedKeys.has(lessonKey(mod.slug, l.slug))).length;
   const { keepSections, beforeList, afterList } = splitModuleWrapUp(mod);
+  const quizQuestionCount = getQuiz(mod.slug)?.questions.length ?? 0;
 
   return (
     <div>
@@ -50,8 +50,12 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
       <h1 className="mt-2 text-2xl font-semibold tracking-tight text-ink-950 sm:text-3xl">{mod.title}</h1>
       {mod.subtitle ? <p className="mt-1 text-base italic text-ink-500">{mod.subtitle}</p> : null}
 
+      {mod.introBlocks.length > 0 || mod.objectivesBlocks.length > 0 ? (
+        <p className="mt-8 text-xs font-semibold uppercase tracking-wide text-brand-600">What am I learning?</p>
+      ) : null}
+
       {mod.introBlocks.length > 0 ? (
-        <section className="mt-8">
+        <section className="mt-3">
           <h2 className="text-lg font-semibold text-ink-950">Module Introduction</h2>
           <MarkdownBlocks blocks={humanizeBlocks(mod.introBlocks)} />
         </section>
@@ -64,7 +68,8 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
         </section>
       ) : null}
 
-      <section className="mt-10">
+      <p className="mt-10 text-xs font-semibold uppercase tracking-wide text-brand-600">What have I completed?</p>
+      <section className="mt-3">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-ink-950">Lessons</h2>
           <span className="text-sm text-ink-500">
@@ -96,37 +101,6 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
         </ol>
       </section>
 
-      <section className="mt-10">
-        <h2 className="text-lg font-semibold text-ink-950">Practice &amp; Assessment</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <ModuleActivityCard
-            href={`/learn/${mod.slug}/exercises`}
-            title="Exercises"
-            description="Applied practice for this module"
-            status={{ complete: activity.exercisesComplete }}
-          />
-          <ModuleActivityCard
-            href={`/learn/${mod.slug}/quiz`}
-            title="Knowledge Check"
-            description="Interactive checkpoint quiz"
-            status={
-              activity.quizSubmitted
-                ? { complete: true, label: `${activity.quizScore ?? 0}/${activity.quizTotal ?? 0}` }
-                : { complete: false }
-            }
-          />
-          <ModuleActivityCard
-            href={`/learn/${mod.slug}/checklist`}
-            title="Completion Checklist"
-            description="Confirm you're ready to continue"
-            status={{
-              complete: activity.checklistComplete,
-              label: activity.checklistComplete ? undefined : `${activity.checklistCheckedCount}/${activity.checklistTotalItems} items`,
-            }}
-          />
-        </div>
-      </section>
-
       {keepSections.map((section) => (
         <section key={section.title} className="mt-10">
           <h2 className="text-lg font-semibold text-ink-950">{section.title}</h2>
@@ -134,7 +108,9 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
         </section>
       ))}
 
+      <p className="mt-10 text-xs font-semibold uppercase tracking-wide text-brand-600">What do I do next?</p>
       <ModuleCompletionPanel
+        moduleSlug={mod.slug}
         moduleOrder={mod.order}
         lessonsCompleted={lessonsCompletedInModule}
         lessonsTotal={mod.lessons.length}
@@ -142,6 +118,7 @@ export default async function ModuleOverviewPage({ params }: { params: Promise<{
         quizSubmitted={activity.quizSubmitted}
         quizScore={activity.quizScore}
         quizTotal={activity.quizTotal}
+        quizQuestionCount={quizQuestionCount}
         checklistComplete={activity.checklistComplete}
         checklistCheckedCount={activity.checklistCheckedCount}
         checklistTotalItems={activity.checklistTotalItems}
