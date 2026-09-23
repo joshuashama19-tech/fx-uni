@@ -452,7 +452,19 @@ export const getQuiz = cache((moduleSlug: string): ParsedQuiz | null => {
   const keyPath = path.join(MODULES_DIR, folder, "04-answer-key.md");
   if (!fs.existsSync(quizPath) || !fs.existsSync(keyPath)) return null;
 
-  const quizBody = stripFrontmatterBody(fs.readFileSync(quizPath, "utf-8"));
+  // Every 03-quiz.md (all 10 modules) ends with a "---" divider followed by
+  // a whole-quiz closing note ("When you've answered all N, check your work
+  // against 04-answer-key.md.") that isn't tied to the last question — cut
+  // it off before splitting into per-question blocks. Without this,
+  // splitNumberedBlocks() (which has no question N+1 marker to stop at) glued
+  // that entire closing note — filename reference and all — onto the last
+  // question's own prompt text, leaking it to students on the Knowledge
+  // Check itself. Mirrors the same split already done for the answer key's
+  // "Scoring guide" note just below.
+  const quizBodyFull = stripFrontmatterBody(fs.readFileSync(quizPath, "utf-8"));
+  const quizClosingNoteSplit = /\n---\n/.exec(quizBodyFull);
+  const quizBody = quizClosingNoteSplit ? quizBodyFull.slice(0, quizClosingNoteSplit.index) : quizBodyFull;
+
   // Every 04-answer-key.md ends with a "---" divider followed by a whole-quiz
   // "Scoring guide" closing note (not tied to any one question) — cut it off
   // before splitting into per-question blocks, so it doesn't get glued onto
