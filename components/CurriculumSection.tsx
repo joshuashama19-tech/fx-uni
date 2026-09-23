@@ -2,6 +2,7 @@ import { curriculum } from "@/lib/course-data";
 import { Container } from "./ui/Container";
 import { SectionHeading } from "./ui/SectionHeading";
 import { Reveal } from "./ui/Reveal";
+import { ChartTexture } from "./visuals/ChartTexture";
 
 /**
  * High-level "What You'll Learn" overview — intentionally shows only the
@@ -12,8 +13,9 @@ import { Reveal } from "./ui/Reveal";
  */
 export function CurriculumSection() {
   return (
-    <section id="curriculum" className="bg-ink-950 py-20 sm:py-24">
-      <Container>
+    <section id="curriculum" className="relative overflow-hidden bg-ink-950 py-20 sm:py-24">
+      <ChartTexture />
+      <Container className="relative">
         <SectionHeading
           eyebrow={curriculum.eyebrow}
           headline={curriculum.headline}

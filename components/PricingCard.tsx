@@ -26,7 +26,11 @@ export function PricingCard({ pricingState, billingNote }: PricingCardProps) {
 
   return (
     <Reveal delay={100} className="mx-auto mt-12 max-w-lg">
-      <div className="rounded-3xl border border-ink-900 bg-ink-950 p-7 shadow-2xl sm:p-9">
+      {/* bg-ink-900 (not -950) + shadow-glow so the card still reads as a
+          distinct card now that PricingSection's own background is dark
+          too (Final Premium Landing Page Redesign, req. #10) — visual only,
+          no change to any pricing value or logic below. */}
+      <div className="rounded-3xl border border-white/10 bg-ink-900 p-7 shadow-glow sm:p-9">
         <div>
           {promo ? (
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-brand-400">

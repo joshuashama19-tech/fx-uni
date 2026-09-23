@@ -42,9 +42,8 @@ export const socialProofStats = {
 
 export const nav = {
   links: [
-    { label: "Curriculum", href: "#curriculum" },
-    { label: "What You Get", href: "#what-you-get" },
-    { label: "Pricing", href: "#pricing" },
+    { label: "What You'll Learn", href: "#curriculum" },
+    { label: "How It Works", href: "#how-it-works" },
     { label: "FAQ", href: "#faq" },
   ],
   ctaLabel: "Get Started",
@@ -242,7 +241,7 @@ export const outcomes = {
 
 // Objection handling: "why pay for a course when free content exists?"
 export const whyStructured = {
-  eyebrow: "A Fair Question",
+  eyebrow: "Learn A Skill That Lasts",
   headline: "Why pay for a course when there's free content everywhere?",
   description:
     "Free Forex content isn't the problem — there's a huge amount of it, and some of it is genuinely good. The problem is that it's scattered across hundreds of videos and posts, often contradicts itself, and rarely follows a beginner-to-intermediate order. You end up with fragments, not a foundation.",
@@ -259,6 +258,14 @@ export const whyStructured = {
       title: "Application",
       description: "Each module pairs theory with exercises and checklists, so you practice it, not just watch it.",
     },
+  ],
+  // Three concise outcomes shown alongside the human/workspace visual
+  // (Final Premium Landing Page Redesign, req. #5) — deliberately framed as
+  // skill/process outcomes, never a promise of profit.
+  outcomes: [
+    { title: "Learn Faster", description: "No more scattered content." },
+    { title: "Build Confidence", description: "Apply what you learn." },
+    { title: "Develop Your Process", description: "A skill you can use long term." },
   ],
   closing:
     "You can keep searching for the next free video, or you can follow a path that's already been put in order for you.",

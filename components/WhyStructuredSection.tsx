@@ -1,16 +1,32 @@
 import { whyStructured } from "@/lib/course-data";
 import { Container } from "./ui/Container";
 import { Reveal } from "./ui/Reveal";
-import { IconLayers, IconCompass, IconTarget } from "./icons";
+import { ImageSlot } from "./visuals/ImageSlot";
+import { IconClock, IconBrain, IconTarget } from "./icons";
 
-const icons = [IconLayers, IconCompass, IconTarget];
+const outcomeIcons = [IconClock, IconBrain, IconTarget];
 
+/**
+ * "Why pay for a course when there's free content everywhere?" — the
+ * page's primary human-presence section (Final Premium Landing Page
+ * Redesign, req. #2 & #5). A real learner/trader photo sits opposite the
+ * objection-handling copy and a compact three-outcome row, replacing the
+ * previous three-card layout with the visual weight the reference calls
+ * for.
+ */
 export function WhyStructuredSection() {
   return (
     <section className="bg-white py-20 sm:py-24">
       <Container>
-        <div className="grid gap-10 lg:grid-cols-12 lg:gap-12">
-          <div className="lg:col-span-5">
+        <div className="grid items-center gap-10 lg:grid-cols-12 lg:gap-14">
+          <Reveal className="lg:col-span-6">
+            <ImageSlot
+              assetKey="learnerReviewingCharts"
+              className="aspect-[4/5] w-full max-w-md rounded-2xl shadow-card sm:aspect-[5/4] lg:aspect-[4/5] lg:max-w-none"
+            />
+          </Reveal>
+
+          <div className="lg:col-span-6">
             <Reveal className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-brand-700">
               <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />
               {whyStructured.eyebrow}
@@ -30,25 +46,23 @@ export function WhyStructuredSection() {
                 {whyStructured.closing}
               </p>
             </Reveal>
-          </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:col-span-7 lg:content-start">
-            {whyStructured.points.map((point, i) => {
-              const Icon = icons[i % icons.length];
-              return (
-                <Reveal
-                  key={point.title}
-                  delay={i * 80}
-                  className="rounded-2xl border border-ink-100 bg-white p-6 shadow-card"
-                >
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-ink-950 text-brand-300">
-                    <Icon className="h-5 w-5" />
-                  </span>
-                  <h3 className="mt-4 text-base font-semibold text-ink-900">{point.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-ink-500">{point.description}</p>
-                </Reveal>
-              );
-            })}
+            <Reveal delay={240} className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-3">
+              {whyStructured.outcomes.map((outcome, i) => {
+                const Icon = outcomeIcons[i % outcomeIcons.length];
+                return (
+                  <div key={outcome.title} className="flex flex-col items-start gap-2 sm:items-center sm:text-center">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-50 text-brand-700">
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold text-ink-900">{outcome.title}</p>
+                      <p className="text-xs text-ink-500">{outcome.description}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </Reveal>
           </div>
         </div>
       </Container>

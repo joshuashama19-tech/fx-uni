@@ -2,41 +2,16 @@ import { whatYouGet } from "@/lib/course-data";
 import { Container } from "./ui/Container";
 import { SectionHeading } from "./ui/SectionHeading";
 import { Reveal } from "./ui/Reveal";
-import { JournalAnalysisVisual } from "./visuals/JournalAnalysisVisual";
-import {
-  IconBook,
-  IconCandles,
-  IconChart,
-  IconLayers,
-  IconGlobe,
-  IconShield,
-  IconBrain,
-  IconTarget,
-  IconRefresh,
-  IconCheckCircle,
-  IconCheck,
-  IconCompass,
-  IconAlert,
-  IconLock,
-} from "./icons";
+import { ImageSlot } from "./visuals/ImageSlot";
+import { IconCheck } from "./icons";
 
-const icons = [
-  IconBook,
-  IconCandles,
-  IconChart,
-  IconLayers,
-  IconGlobe,
-  IconShield,
-  IconBrain,
-  IconTarget,
-  IconRefresh,
-  IconCheckCircle,
-  IconCheck,
-  IconCompass,
-  IconAlert,
-  IconLock,
-];
-
+/**
+ * "Here's exactly what you're getting" (Final Premium Landing Page
+ * Redesign, req. #9) — reworked from a 3-column icon-card grid into a
+ * photo + organized list composition, per the request's explicit "reduce
+ * the visual feeling of a generic grid" instruction. All 14 existing,
+ * approved items are kept, unchanged — only the presentation changed.
+ */
 export function WhatYouGetSection() {
   return (
     <section id="what-you-get" className="bg-ink-50 py-20 sm:py-24">
@@ -50,33 +25,26 @@ export function WhatYouGetSection() {
               align="left"
             />
           </div>
-          {/* Trading journal / analysis visual (asset #3) — placed in this
-              lower section, as suggested by the task's "optional lower
-              section" guidance. */}
           <Reveal delay={80} className="lg:col-span-5">
-            <JournalAnalysisVisual />
+            <ImageSlot
+              assetKey="journalReviewCloseup"
+              className="aspect-[4/5] w-full max-w-md rounded-2xl shadow-card sm:aspect-[5/4] lg:aspect-[4/5] lg:max-w-none"
+            />
           </Reveal>
         </div>
 
-        <div className="mt-14 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {whatYouGet.items.map((item, i) => {
-            const Icon = icons[i % icons.length];
-            return (
-              <Reveal
-                key={item.title}
-                delay={(i % 3) * 70}
-                className="flex items-start gap-4 rounded-2xl bg-white p-6 shadow-card"
-              >
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
-                  <Icon className="h-5 w-5" />
-                </span>
-                <div>
-                  <h3 className="text-sm font-semibold text-ink-900 sm:text-base">{item.title}</h3>
-                  <p className="mt-1.5 text-sm leading-relaxed text-ink-500">{item.description}</p>
-                </div>
-              </Reveal>
-            );
-          })}
+        <div className="mt-12 grid grid-cols-1 gap-x-10 gap-y-3.5 sm:grid-cols-2">
+          {whatYouGet.items.map((item, i) => (
+            <Reveal key={item.title} delay={(i % 6) * 50} className="flex items-start gap-3 border-b border-ink-100 py-3">
+              <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-brand-700 shadow-card">
+                <IconCheck className="h-3.5 w-3.5" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-ink-900">{item.title}</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-ink-500">{item.description}</p>
+              </div>
+            </Reveal>
+          ))}
         </div>
       </Container>
     </section>

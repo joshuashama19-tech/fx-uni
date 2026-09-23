@@ -2,8 +2,7 @@ import { hero } from "@/lib/course-data";
 import { Button } from "./ui/Button";
 import { Container } from "./ui/Container";
 import { Reveal } from "./ui/Reveal";
-import { HeroChartCard } from "./HeroChartCard";
-import { HeroWorkspaceVisual } from "./visuals/HeroWorkspaceVisual";
+import { ImageSlot } from "./visuals/ImageSlot";
 import { IconArrowRight, IconCheck } from "./icons";
 
 export function Hero() {
@@ -56,14 +55,19 @@ export function Hero() {
           </Reveal>
         </div>
 
-        <Reveal delay={160} className="relative lg:col-span-5">
-          {/* Premium workspace backdrop (visual asset #1) — sits behind the
-              existing, unmodified chart mockup so the hero's hierarchy and
-              the mockup itself are untouched; this only adds atmosphere. */}
-          <HeroWorkspaceVisual />
-          <div className="relative z-10">
-            <HeroChartCard />
-          </div>
+        <Reveal delay={160} className="lg:col-span-5">
+          {/* Premium photographic hero visual (Final Premium Landing Page
+              Redesign, req. #1) — a real trading-workspace photo once one is
+              supplied at public/images/hero-workspace.jpg; a labeled
+              placeholder until then. Replaces the earlier abstract SVG
+              treatment, per the task's explicit instruction not to
+              substitute missing photography with more vector illustration. */}
+          <ImageSlot
+            assetKey="heroWorkspace"
+            tone="dark"
+            priority
+            className="aspect-[4/5] w-full rounded-2xl shadow-2xl sm:aspect-[6/5] lg:aspect-[4/5]"
+          />
         </Reveal>
       </Container>
     </section>
