@@ -72,6 +72,7 @@ export default async function AdminOrdersPage() {
                     <th className="px-4 py-3">Student</th>
                     <th className="px-4 py-3">Reference</th>
                     <th className="px-4 py-3">Amount</th>
+                    <th className="px-4 py-3">Discount</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Date</th>
                   </tr>
@@ -81,7 +82,29 @@ export default async function AdminOrdersPage() {
                     <tr key={o.id} className="border-t border-ink-100">
                       <td className="px-4 py-3 text-ink-700">{o.email ?? "—"}</td>
                       <td className="px-4 py-3 font-mono text-xs text-ink-600">{o.paystack_reference}</td>
-                      <td className="px-4 py-3 text-ink-900">{formatAmount(o.amount_minor_units, o.currency)}</td>
+                      <td className="px-4 py-3 text-ink-900">
+                        {o.discount_code ? (
+                          <>
+                            <span className="text-xs text-ink-400 line-through">
+                              {formatAmount(o.base_amount_minor_units, o.currency)}
+                            </span>{" "}
+                            {formatAmount(o.amount_minor_units, o.currency)}
+                          </>
+                        ) : (
+                          formatAmount(o.amount_minor_units, o.currency)
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-ink-600">
+                        {o.discount_code ? (
+                          <>
+                            <span className="font-mono font-medium text-ink-800">{o.discount_code}</span>
+                            <br />
+                            −{formatAmount(o.discount_amount_minor_units, o.currency)}
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <span
                           className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[o.status]}`}

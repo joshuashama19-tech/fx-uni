@@ -5,10 +5,11 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { checkCourseAccess } from "@/lib/access";
 import { signInAction } from "@/lib/auth/actions";
-import { initializeCheckoutAction } from "@/lib/payments/checkout-action";
+import { initializeCheckoutAction, applyDiscountCodeAction } from "@/lib/payments/checkout-action";
 import { siteConfig } from "@/lib/course-data";
 import { getSiteContent } from "@/lib/content";
-import { resolvePricing } from "@/lib/pricing";
+import { resolvePricing, formatMinorUnits } from "@/lib/pricing";
+import { validateDiscountCode } from "@/lib/discounts";
 import { Container } from "@/components/ui/Container";
 import { IconArrowRight, IconAlert, IconMail } from "@/components/icons";
 import { SignupForm } from "@/components/auth/SignupForm";
@@ -25,7 +26,15 @@ type SearchParams = {
   status?: string;
   email?: string;
   next?: string;
+  discount?: string;
+  discount_error?: string;
 };
+
+interface DiscountPreview {
+  code: string;
+  discountAmountFormatted: string;
+  payableFormatted: string;
+}
 
 export default async function GetStartedPage({
   searchParams,
@@ -48,6 +57,28 @@ export default async function GetStartedPage({
   const pricingState = await resolvePricing();
   const content = await getSiteContent();
   const next = params.next && params.next.startsWith("/") && !params.next.startsWith("//") ? params.next : "/learn";
+
+  // Re-validates the code from the `?discount=` query string (set by
+  // applyDiscountCodeAction) fresh on every render, purely to show an
+  // accurate price breakdown — never trusted as-is for the actual charge.
+  // initializeCheckoutAction re-validates it a second, completely
+  // independent time when the student actually submits checkout.
+  let discountPreview: DiscountPreview | null = null;
+  if (user && params.discount) {
+    const validation = await validateDiscountCode(params.discount, user.id, pricingState.payableMinorUnits);
+    if (validation.valid) {
+      discountPreview = {
+        code: validation.discount.code,
+        discountAmountFormatted: formatMinorUnits(validation.discountAmountMinorUnits, pricingState.currency),
+        payableFormatted: formatMinorUnits(validation.finalAmountMinorUnits, pricingState.currency),
+      };
+    }
+    // An invalid code in the query string (expired since it was applied,
+    // usage limit hit in the meantime, or a hand-edited URL) just silently
+    // falls back to full price here — the student sees the real price and
+    // can re-apply; initializeCheckoutAction is what actually refuses to
+    // charge on a bad code, with an explicit error.
+  }
 
   return (
     <main id="main-content" className="min-h-screen bg-ink-950 py-16 sm:py-24">
@@ -86,8 +117,17 @@ export default async function GetStartedPage({
             <p className="mb-5 rounded-lg bg-brand-50 px-4 py-3 text-sm text-brand-700">{params.error}</p>
           ) : null}
 
+          {params.discount_error ? (
+            <p className="mb-5 rounded-lg bg-brand-50 px-4 py-3 text-sm text-brand-700">{params.discount_error}</p>
+          ) : null}
+
           {user ? (
-            <CheckoutPanel email={user.email ?? ""} pricing={pricingState} billingNote={content.pricing_billing_note} />
+            <CheckoutPanel
+              email={user.email ?? ""}
+              pricing={pricingState}
+              billingNote={content.pricing_billing_note}
+              discountPreview={discountPreview}
+            />
           ) : (
             <AuthPanel mode={params.mode === "login" ? "login" : "signup"} next={next} />
           )}
@@ -130,17 +170,19 @@ function CheckoutPanel({
   email,
   pricing,
   billingNote,
+  discountPreview,
 }: {
   email: string;
   pricing: Awaited<ReturnType<typeof resolvePricing>>;
   billingNote: string;
+  discountPreview: DiscountPreview | null;
 }) {
   return (
     <div>
       <p className="text-sm text-ink-500">Signed in as</p>
       <p className="mb-6 font-medium text-ink-900">{email}</p>
 
-      <div className="mb-6 rounded-xl border border-ink-100 bg-ink-50 p-4">
+      <div className="mb-4 rounded-xl border border-ink-100 bg-ink-50 p-4">
         <p className="text-sm text-ink-500">{siteConfig.name} — full course</p>
         {pricing.isPromoActive ? (
           <div className="mt-1 flex flex-wrap items-baseline gap-2">
@@ -154,9 +196,60 @@ function CheckoutPanel({
           <p className="mt-1 text-2xl font-semibold text-ink-950">{pricing.payableFormatted}</p>
         )}
         <p className="mt-1 text-xs text-ink-500">{billingNote}</p>
+
+        {discountPreview ? (
+          <dl className="mt-3 space-y-1 border-t border-ink-200 pt-3 text-sm">
+            <div className="flex justify-between">
+              <dt className="text-ink-500">Course price</dt>
+              <dd className="text-ink-700">{pricing.payableFormatted}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-ink-500">
+                Discount (<span className="font-mono">{discountPreview.code}</span>)
+              </dt>
+              <dd className="text-brand-700">−{discountPreview.discountAmountFormatted}</dd>
+            </div>
+            <div className="flex justify-between font-semibold">
+              <dt className="text-ink-900">You pay</dt>
+              <dd className="text-ink-950">{discountPreview.payableFormatted}</dd>
+            </div>
+          </dl>
+        ) : null}
       </div>
 
+      {!discountPreview ? (
+        <form action={applyDiscountCodeAction} className="mb-6 flex gap-2">
+          <label className="sr-only" htmlFor="discount_code_input">
+            Discount code
+          </label>
+          <input
+            id="discount_code_input"
+            name="discount_code"
+            type="text"
+            placeholder="Discount code (optional)"
+            autoCapitalize="characters"
+            className="min-w-0 flex-1 rounded-lg border border-ink-200 bg-white px-3.5 py-2.5 text-sm uppercase text-ink-900 placeholder:normal-case placeholder:text-ink-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+          />
+          <button
+            type="submit"
+            className="shrink-0 rounded-lg border border-ink-200 px-4 py-2.5 text-sm font-semibold text-ink-700 hover:bg-ink-50"
+          >
+            Apply
+          </button>
+        </form>
+      ) : (
+        <form action="/get-started" className="mb-6">
+          <button
+            type="submit"
+            className="text-sm text-ink-500 underline underline-offset-2 hover:text-ink-800"
+          >
+            Remove discount code
+          </button>
+        </form>
+      )}
+
       <form action={initializeCheckoutAction}>
+        {discountPreview ? <input type="hidden" name="discount_code" value={discountPreview.code} /> : null}
         <button
           type="submit"
           className="group inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand-600 px-6 py-3.5 text-base font-semibold text-white shadow-glow transition-all duration-200 hover:-translate-y-0.5 hover:bg-brand-700 active:translate-y-0"

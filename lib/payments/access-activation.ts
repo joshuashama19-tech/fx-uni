@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyTransaction } from "@/lib/payments/paystack";
 import { getCourseId } from "@/lib/access";
+import { redeemDiscountCode } from "@/lib/discounts";
 import type { OrderRow, OrderStatus } from "@/lib/types";
 
 // The single place that turns a payment signal into an actual state change
@@ -123,6 +124,25 @@ export async function confirmSuccessfulPayment(params: {
   }
 
   await grantCourseAccess(order.user_id, order.id);
+
+  // Record the redemption (and increment the discount code's usage_count)
+  // only now — after payment has been confirmed successful and access has
+  // been granted, never at "Apply" time. Idempotent per order.id via
+  // apply_discount_redemption()'s ON CONFLICT (order_id) DO NOTHING (see
+  // supabase/migrations/0010_discount_codes.sql), so it's safe for this to
+  // run again for the same order from a different dedupe key (e.g. the
+  // webhook and the student's return-page verify both independently
+  // reaching this point for the same payment) — only the first call ever
+  // actually records a redemption or increments usage_count.
+  if (order.discount_code_id && order.discount_code) {
+    await redeemDiscountCode({
+      discountCodeId: order.discount_code_id,
+      userId: order.user_id,
+      orderId: order.id,
+      code: order.discount_code,
+      discountAmountMinorUnits: order.discount_amount_minor_units,
+    });
+  }
 
   return { outcome: "granted", orderId: order.id };
 }
