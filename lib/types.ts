@@ -6,6 +6,15 @@
 export type OrderStatus = "pending" | "successful" | "failed" | "cancelled" | "refunded" | "disputed";
 export type CourseAccessStatus = "active" | "revoked";
 
+// Added in supabase/migrations/0011_payment_provider.sql. Which payment
+// provider's API was used to initialize/verify a given order — see
+// lib/payments/provider.ts (the one place that decides which provider a
+// NEW checkout uses) and lib/payments/access-activation.ts (which reads an
+// existing order's own payment_provider to know which provider's verify
+// API to re-check against, so provider selection is never re-derived or
+// guessed after the fact).
+export type PaymentProvider = "paystack" | "korapay";
+
 export interface ProfileRow {
   id: string;
   email: string;
@@ -36,6 +45,10 @@ export interface OrderRow {
   discount_code: string | null;
   discount_amount_minor_units: number;
   base_amount_minor_units: number;
+  // Added in supabase/migrations/0011_payment_provider.sql. Backfilled to
+  // 'paystack' for every order that existed before this column did, so
+  // existing Paystack orders keep working with no other change.
+  payment_provider: PaymentProvider;
 }
 
 export interface CourseAccessRow {

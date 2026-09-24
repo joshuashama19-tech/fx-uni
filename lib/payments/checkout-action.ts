@@ -6,6 +6,8 @@ import { rateLimit } from "@/lib/rate-limit";
 import { checkCourseAccess, getCourseId } from "@/lib/access";
 import { resolvePricing } from "@/lib/pricing";
 import { initializeTransaction, generateOrderReference } from "@/lib/payments/paystack";
+import { initializeCharge } from "@/lib/payments/korapay";
+import { resolvePaymentProvider } from "@/lib/payments/provider";
 import { validateDiscountCode, discountErrorMessage, normalizeDiscountCode } from "@/lib/discounts";
 
 function getSiteUrl(): string {
@@ -15,13 +17,15 @@ function getSiteUrl(): string {
 /**
  * Starts checkout: creates a `pending` order row as the authenticated user
  * (respecting the orders_insert_own_pending RLS policy — this action never
- * uses the admin client), then asks Paystack to initialize a transaction
- * and redirects the browser to Paystack's own hosted checkout page.
+ * uses the admin client), then asks the selected payment provider
+ * (resolvePaymentProvider() — server-side only, never the browser; see
+ * lib/payments/provider.ts) to initialize a transaction/charge and
+ * redirects the browser to that provider's own hosted checkout page.
  *
  * Nothing here marks the order paid or grants access — that only ever
- * happens in lib/payments/access-activation.ts, after Paystack's own
+ * happens in lib/payments/access-activation.ts, after the provider's own
  * server-side verification, triggered either by the student's return to
- * /get-started/verify or by the webhook.
+ * /get-started/verify or by that provider's webhook.
  *
  * `formData`'s optional `discount_code` field (a hidden input on the
  * checkout form, populated from the `?discount=` query string set by
@@ -92,6 +96,12 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
 
   const reference = generateOrderReference();
 
+  // The ONLY place a new checkout's provider is decided — server-side,
+  // before either provider adapter is touched, and never from anything the
+  // browser sent (the checkout form has no provider field at all). See
+  // lib/payments/provider.ts.
+  const provider = resolvePaymentProvider();
+
   const { data: insertedOrder, error: insertError } = await supabase
     .from("orders")
     .insert({
@@ -101,6 +111,7 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
       currency,
       status: "pending",
       paystack_reference: reference,
+      payment_provider: provider,
       base_amount_minor_units: baseAmountMinorUnits,
       discount_code_id: discountCodeId,
       discount_code: discountCode,
@@ -113,44 +124,70 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
     redirect(`/get-started?error=${encodeURIComponent("Could not start checkout. Please try again.")}`);
   }
 
-  let authorizationUrl: string;
+  const redirectUrl = `${getSiteUrl()}/get-started/verify`;
+
+  let checkoutRedirectTarget: string;
   try {
-    const result = await initializeTransaction({
-      email: user.email!,
-      amountMinorUnits,
-      currency,
-      reference,
-      callbackUrl: `${getSiteUrl()}/get-started/verify`,
-      metadata: {
-        user_id: user.id,
-        course_id: getCourseId(),
-        // order_id/discount fields let Paystack's dashboard and any manual
-        // reconciliation see the discount context without a DB lookup. The
-        // secret key itself is never included here or anywhere in
-        // metadata — this object only ever holds identifiers, never
-        // credentials (see lib/payments/paystack.ts, which is the only
-        // place PAYSTACK_SECRET_KEY is read, always server-side, and only
-        // ever sent as an Authorization header, never in a request body).
-        // None of this metadata is trusted back — access-activation.ts
-        // always re-derives everything it acts on from the `orders` row
-        // itself (looked up by paystack_reference) and Paystack's own
-        // /transaction/verify response, never from metadata echoed back in
-        // a webhook payload or the return-page query string.
-        order_id: insertedOrder.id,
-        order_reference: reference,
-        discount_code: discountCode,
-        discount_amount_minor_units: discountAmountMinorUnits,
-        base_amount_minor_units: baseAmountMinorUnits,
-      },
-    });
-    authorizationUrl = result.authorizationUrl;
+    if (provider === "korapay") {
+      const result = await initializeCharge({
+        email: user.email!,
+        amountMinorUnits,
+        currency,
+        reference,
+        redirectUrl,
+        customerName: typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : undefined,
+        // Korapay caps initialize metadata at 5 fields with <=20 char
+        // names — kept to the two most useful identifiers rather than
+        // mirroring every field Paystack's metadata carries. Never trusted
+        // back either way; see initializeCharge's own doc comment. Field
+        // names use hyphens, not underscores: Korapay's documented allowed
+        // character set for metadata field names is A-Z, a-z, 0-9, and `-`
+        // only — an underscore is not in that set (verified against
+        // https://developers.korapay.com/docs/checkout-redirect).
+        metadata: {
+          "order-id": insertedOrder.id,
+          "order-reference": reference,
+        },
+      });
+      checkoutRedirectTarget = result.checkoutUrl;
+    } else {
+      const result = await initializeTransaction({
+        email: user.email!,
+        amountMinorUnits,
+        currency,
+        reference,
+        callbackUrl: redirectUrl,
+        metadata: {
+          user_id: user.id,
+          course_id: getCourseId(),
+          // order_id/discount fields let Paystack's dashboard and any manual
+          // reconciliation see the discount context without a DB lookup. The
+          // secret key itself is never included here or anywhere in
+          // metadata — this object only ever holds identifiers, never
+          // credentials (see lib/payments/paystack.ts, which is the only
+          // place PAYSTACK_SECRET_KEY is read, always server-side, and only
+          // ever sent as an Authorization header, never in a request body).
+          // None of this metadata is trusted back — access-activation.ts
+          // always re-derives everything it acts on from the `orders` row
+          // itself (looked up by paystack_reference) and Paystack's own
+          // /transaction/verify response, never from metadata echoed back in
+          // a webhook payload or the return-page query string.
+          order_id: insertedOrder.id,
+          order_reference: reference,
+          discount_code: discountCode,
+          discount_amount_minor_units: discountAmountMinorUnits,
+          base_amount_minor_units: baseAmountMinorUnits,
+        },
+      });
+      checkoutRedirectTarget = result.authorizationUrl;
+    }
   } catch {
     redirect(
       `/get-started?error=${encodeURIComponent("Payment could not be started right now. Please try again shortly.")}`
     );
   }
 
-  redirect(authorizationUrl);
+  redirect(checkoutRedirectTarget);
 }
 
 /**

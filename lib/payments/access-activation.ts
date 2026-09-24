@@ -1,24 +1,34 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyTransaction } from "@/lib/payments/paystack";
+import { verifyCharge as verifyKorapayCharge } from "@/lib/payments/korapay";
 import { getCourseId } from "@/lib/access";
 import { redeemDiscountCode } from "@/lib/discounts";
-import type { OrderRow, OrderStatus } from "@/lib/types";
+import type { OrderRow, OrderStatus, PaymentProvider } from "@/lib/types";
 
 // The single place that turns a payment signal into an actual state change
-// (order.status, course_access.status). Called from two places:
-//   - app/get-started/verify/page.tsx, right after Paystack redirects the
-//     student back from its hosted checkout page (the "did my payment go
-//     through" moment the student actually sees)
-//   - app/api/webhooks/paystack/route.ts, on a `charge.success` event (the
-//     durable confirmation path — works even if the student's browser never
-//     makes it back to the callback URL)
-// Both paths re-verify with Paystack's server-side /transaction/verify
-// endpoint here — neither trusts its own trigger (a redirect query string,
-// or a webhook payload's own "status" field) as sufficient on its own. This
-// is what "trusted server-side verification" (section 8) means concretely:
-// the thing that activates access is Paystack's API telling OUR server the
-// transaction succeeded, never the browser or the webhook body alone.
+// (order.status, course_access.status) — shared by every payment provider,
+// not just Paystack. Called from two places:
+//   - app/get-started/verify/page.tsx, right after the provider redirects
+//     the student back from its hosted checkout page (the "did my payment
+//     go through" moment the student actually sees)
+//   - app/api/webhooks/paystack/route.ts and app/api/webhooks/korapay/route.ts,
+//     on that provider's own "charge succeeded" event (the durable
+//     confirmation path — works even if the student's browser never makes
+//     it back to the callback/redirect URL)
+// Both paths re-verify server-side against whichever provider this specific
+// order actually used (order.payment_provider — see verifyPayment() below
+// and lib/payments/provider.ts) — neither trusts its own trigger (a
+// redirect query string, or a webhook payload's own "status" field) as
+// sufficient on its own. This is what "trusted server-side verification"
+// means concretely: the thing that activates access is the PROVIDER'S own
+// API telling OUR server the payment succeeded, never the browser or the
+// webhook body alone. This is also why an order's provider is always read
+// from the order row itself, never re-resolved via
+// lib/payments/provider.ts's resolvePaymentProvider() — that function only
+// ever decides what a *new* checkout uses; re-deriving it here could
+// disagree with what a given order actually used if the default is ever
+// changed later.
 //
 // Idempotency: every processing attempt first tries to INSERT its
 // payment_events row with a unique dedupe_key; a duplicate webhook delivery
@@ -28,9 +38,34 @@ import type { OrderRow, OrderStatus } from "@/lib/types";
 // only actually happens once. course_access itself is additionally an
 // upsert on unique(user_id, course_id), so even a genuine race between the
 // webhook and the return-page verify path just converges on the same final
-// state rather than erroring or double-granting.
+// state rather than erroring or double-granting. None of this changed for
+// Korapay — it's exactly why requirement #10 ("reuse the existing
+// provider-neutral successful-payment/access-activation flow") is
+// satisfiable with this one dispatch point rather than a parallel copy.
 
 export type PaymentSource = "webhook" | "return";
+
+interface GenericVerifyResult {
+  success: boolean;
+  status: string;
+  amountMinorUnits: number;
+  currency: string;
+}
+
+/**
+ * Re-verifies a reference against whichever provider actually processed
+ * it. Both lib/payments/paystack.ts's verifyTransaction() and
+ * lib/payments/korapay.ts's verifyCharge() already return results shaped
+ * with the same success/status/amountMinorUnits/currency fields this
+ * function's callers need, so this is a pure dispatch — no
+ * provider-specific logic lives here.
+ */
+async function verifyPayment(provider: PaymentProvider, reference: string): Promise<GenericVerifyResult> {
+  if (provider === "korapay") {
+    return verifyKorapayCharge(reference);
+  }
+  return verifyTransaction(reference);
+}
 
 interface ConfirmResult {
   outcome: "granted" | "already_processed" | "order_not_found" | "verification_failed" | "mismatch";
@@ -67,8 +102,9 @@ export async function confirmSuccessfulPayment(params: {
     return { outcome: "order_not_found" };
   }
 
-  // Re-verify with Paystack directly — the actual trusted confirmation.
-  const verification = await verifyTransaction(params.reference);
+  // Re-verify directly with whichever provider this order actually used —
+  // the actual trusted confirmation. See verifyPayment() above.
+  const verification = await verifyPayment(order.payment_provider, params.reference);
 
   // The order row is itself the authoritative record of what this specific
   // checkout was for: it was written server-side, at checkout-initiation
@@ -190,6 +226,184 @@ export async function handlePaystackRefundOrDispute(params: {
   await admin.from("orders").update({ status: newStatus }).eq("id", order.id);
 
   await revokeCourseAccess(order.user_id, `paystack_${params.eventType}`);
+
+  return { outcome: "revoked" };
+}
+
+/**
+ * Korapay counterpart to handlePaystackRefundOrDispute() above, called only
+ * from app/api/webhooks/korapay/route.ts on a `refund.success` event.
+ * Deliberately narrower than the Paystack version: Korapay's own documented
+ * webhook events (https://developers.korapay.com/docs/webhooks) for
+ * refunds are just refund.success/refund.failed, and `refund.failed` means
+ * a refund ATTEMPT failed (nothing actually changed about the original
+ * successful charge), so it is intentionally not routed here at all — see
+ * the webhook route, which only calls this for refund.success. Korapay's
+ * separate chargeback event family (chargeback.pending/declined/partial/
+ * lost/auto_accepted — see https://developers.korapay.com/docs/chargebacks)
+ * is handled by handleKorapayChargebackLoss() below instead, not here — a
+ * chargeback is a different lifecycle from a merchant-initiated refund.
+ */
+export async function handleKorapayRefund(params: {
+  reference: string;
+  eventType: string; // "refund.success"
+  rawPayload: unknown;
+}): Promise<{ outcome: "revoked" | "already_processed" | "order_not_found" }> {
+  const admin = createAdminClient();
+  const dedupeKey = `webhook:${params.eventType}:${params.reference}`;
+
+  const { data: order } = await admin
+    .from("orders")
+    .select("*")
+    .eq("paystack_reference", params.reference)
+    .maybeSingle<OrderRow>();
+
+  if (!order) {
+    await logPaymentEvent(admin, {
+      dedupeKey,
+      orderId: null,
+      reference: params.reference,
+      eventType: params.eventType,
+      status: "order_not_found",
+      rawPayload: params.rawPayload,
+    });
+    return { outcome: "order_not_found" };
+  }
+
+  const inserted = await logPaymentEvent(admin, {
+    dedupeKey,
+    orderId: order.id,
+    reference: params.reference,
+    eventType: params.eventType,
+    status: null,
+    rawPayload: params.rawPayload,
+  });
+
+  if (!inserted) {
+    return { outcome: "already_processed" };
+  }
+
+  const newStatus: OrderStatus = "refunded";
+  await admin.from("orders").update({ status: newStatus }).eq("id", order.id);
+
+  await revokeCourseAccess(order.user_id, `korapay_${params.eventType}`);
+
+  return { outcome: "revoked" };
+}
+
+/**
+ * Handles a Korapay chargeback that has actually resulted in the merchant
+ * losing the disputed funds — called only from
+ * app/api/webhooks/korapay/route.ts on `chargeback.lost` or
+ * `chargeback.auto_accepted`.
+ *
+ * Korapay's chargeback event family
+ * (https://developers.korapay.com/docs/chargebacks) is
+ * chargeback.pending, chargeback.declined, chargeback.partial,
+ * chargeback.lost and chargeback.auto_accepted. Korapay's own docs do not
+ * give prose definitions for these beyond the event names themselves and
+ * one sample payload (for chargeback.pending) — there is no
+ * "chargeback.won"/"chargeback.accepted" event documented either. Per the
+ * plain, industry-standard meaning of the two event names actually being
+ * handled here: `lost` is the terminal "merchant lost the dispute" outcome,
+ * and `auto_accepted` is Korapay/the scheme automatically resolving the
+ * chargeback against the merchant (typically a missed response deadline)
+ * — both mean the disputed funds are gone. `chargeback.pending` is not
+ * terminal (nothing has been decided yet) and `chargeback.declined` is
+ * left undocumented as to WHO declined (the merchant declining to contest,
+ * or the claim being declined in the merchant's favor) — neither of those
+ * two, nor `chargeback.partial` (a split outcome that isn't a clean "funds
+ * lost"), is treated as a loss here. This intentionally does NOT assume
+ * every chargeback event means lost funds — only the two whose names
+ * unambiguously indicate that outcome are wired up; the rest are
+ * acknowledged and ignored by the webhook route.
+ *
+ * Reference handling: a chargeback payload carries TWO references —
+ * `data.reference` (the chargeback's own id, e.g. "KPY-CHG-...") and
+ * `data.payment.reference` (the ORIGINAL order's reference, e.g.
+ * "fxuni_..." — the same value this app generated at checkout and stored
+ * as orders.paystack_reference). Only `data.payment.reference` identifies
+ * which order is affected; `data.reference` is used purely to keep the
+ * idempotency dedupe key unique per chargeback instance (see below) and is
+ * never used to look up an order.
+ *
+ * Safety, matching the same principles as handlePaystackRefundOrDispute()
+ * and handleKorapayRefund() above:
+ *   - the affected order is identified by orderReference
+ *     (data.payment.reference) alone — an unrecognized reference never
+ *     touches any order (guards against acting on a chargeback for an
+ *     order this app never created);
+ *   - access is revoked ONLY when that order's current status is
+ *     "successful" — a chargeback notification for an order that was
+ *     never actually paid out (still pending, already failed/cancelled,
+ *     or already refunded/disputed by an earlier event) is recorded for
+ *     the audit trail but does not touch course_access or order.status
+ *     again, so this can never revoke access for an order that wasn't
+ *     granted access via a successful payment in the first place;
+ *   - idempotent via the same payment_events.dedupe_key mechanism as
+ *     every other handler in this file — keyed on the chargeback's OWN
+ *     reference (not the order's), so a retried/duplicate delivery of the
+ *     same chargeback.lost webhook is a no-op, while a separate later
+ *     chargeback against the same order (a different data.reference)
+ *     would still be recorded rather than silently swallowed;
+ *   - never touches any order other than the one identified by
+ *     orderReference.
+ */
+export async function handleKorapayChargebackLoss(params: {
+  orderReference: string; // data.payment.reference
+  chargebackReference: string; // data.reference — Korapay's own chargeback id
+  eventType: string; // "chargeback.lost" | "chargeback.auto_accepted"
+  rawPayload: unknown;
+}): Promise<{
+  outcome: "revoked" | "already_processed" | "order_not_found" | "not_previously_successful";
+}> {
+  const admin = createAdminClient();
+  const dedupeKey = `webhook:${params.eventType}:${params.chargebackReference}`;
+
+  const { data: order } = await admin
+    .from("orders")
+    .select("*")
+    .eq("paystack_reference", params.orderReference)
+    .maybeSingle<OrderRow>();
+
+  if (!order) {
+    await logPaymentEvent(admin, {
+      dedupeKey,
+      orderId: null,
+      reference: params.orderReference,
+      eventType: params.eventType,
+      status: "order_not_found",
+      rawPayload: params.rawPayload,
+    });
+    return { outcome: "order_not_found" };
+  }
+
+  const inserted = await logPaymentEvent(admin, {
+    dedupeKey,
+    orderId: order.id,
+    reference: params.orderReference,
+    eventType: params.eventType,
+    status: null,
+    rawPayload: params.rawPayload,
+  });
+
+  if (!inserted) {
+    return { outcome: "already_processed" };
+  }
+
+  if (order.status !== "successful") {
+    // Never actually granted access via a successful payment (still
+    // pending, already failed/cancelled, or already moved to
+    // refunded/disputed by an earlier event) — nothing to revoke. The
+    // payment_events row above still records that this chargeback was
+    // seen, for the audit trail.
+    return { outcome: "not_previously_successful" };
+  }
+
+  const newStatus: OrderStatus = "disputed";
+  await admin.from("orders").update({ status: newStatus }).eq("id", order.id);
+
+  await revokeCourseAccess(order.user_id, `korapay_${params.eventType}`);
 
   return { outcome: "revoked" };
 }
