@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkCourseAccess } from "@/lib/access";
 import { signInAction } from "@/lib/auth/actions";
 import { initializeCheckoutAction, applyDiscountCodeAction } from "@/lib/payments/checkout-action";
+import { resolvePaymentProvider, type PaymentProvider } from "@/lib/payments/provider";
 import { siteConfig } from "@/lib/course-data";
 import { getSiteContent } from "@/lib/content";
 import { resolvePricing, formatMinorUnits } from "@/lib/pricing";
@@ -127,6 +128,7 @@ export default async function GetStartedPage({
               pricing={pricingState}
               billingNote={content.pricing_billing_note}
               discountPreview={discountPreview}
+              paymentProvider={resolvePaymentProvider()}
             />
           ) : (
             <AuthPanel mode={params.mode === "login" ? "login" : "signup"} next={next} />
@@ -166,16 +168,28 @@ function StatusPanel({
   );
 }
 
+// Display names for the "you'll be redirected to X" copy below — the only
+// place a payment provider's name is shown to the student. Deliberately a
+// small local lookup (not exported/shared) rather than baked into
+// lib/payments/provider.ts, since that module is server-only wiring and has
+// no reason to know about UI copy.
+const PAYMENT_PROVIDER_DISPLAY_NAME: Record<PaymentProvider, string> = {
+  paystack: "Paystack",
+  korapay: "Korapay",
+};
+
 function CheckoutPanel({
   email,
   pricing,
   billingNote,
   discountPreview,
+  paymentProvider,
 }: {
   email: string;
   pricing: Awaited<ReturnType<typeof resolvePricing>>;
   billingNote: string;
   discountPreview: DiscountPreview | null;
+  paymentProvider: PaymentProvider;
 }) {
   return (
     <div>
@@ -259,8 +273,8 @@ function CheckoutPanel({
         </button>
       </form>
       <p className="mt-4 text-center text-xs text-ink-500">
-        You&apos;ll be redirected to Paystack to complete payment securely. Access unlocks automatically once
-        payment is confirmed.
+        You&apos;ll be redirected to {PAYMENT_PROVIDER_DISPLAY_NAME[paymentProvider]} to complete payment securely.
+        Access unlocks automatically once payment is confirmed.
       </p>
 
       <p className="mt-4 text-center">
