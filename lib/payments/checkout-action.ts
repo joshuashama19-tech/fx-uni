@@ -181,7 +181,18 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
       });
       checkoutRedirectTarget = result.authorizationUrl;
     }
-  } catch {
+  } catch (err) {
+    // Without this, a provider initialization failure (either provider) was
+    // completely invisible: this catch swallowed the error and redirect()
+    // still produces a normal-looking response, so nothing showed up in
+    // Vercel's function logs — not just to tooling, to the account owner's
+    // own dashboard either. Logs the message only (Korapay/Paystack's own
+    // error text, e.g. "Korapay initialize failed: ..."), never headers or
+    // KORAPAY_SECRET_KEY/PAYSTACK_SECRET_KEY, which never appear in this
+    // error to begin with (see initializeCharge/initializeTransaction).
+    // Mirrors the existing console.error pattern in
+    // app/api/webhooks/korapay/route.ts's own catch block.
+    console.error("[checkout] provider initialization failed", provider, reference, err);
     redirect(
       `/get-started?error=${encodeURIComponent("Payment could not be started right now. Please try again shortly.")}`
     );
