@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/access";
+import { signOutAction } from "@/lib/auth/actions";
 
 // Shared nav shell for every /admin/* page. requireAdmin() runs here too —
 // on top of every individual page and Server Action already calling it
@@ -26,7 +27,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <header className="border-b border-ink-100 bg-white">
         <div className="mx-auto flex max-w-5xl items-center gap-1 overflow-x-auto px-5 py-3">
           <span className="mr-4 shrink-0 text-sm font-semibold text-ink-950">FX University Admin</span>
-          <nav className="flex gap-1">
+          <nav className="flex flex-1 items-center gap-1">
             {links.map((l) => (
               <Link
                 key={l.href}
@@ -37,6 +38,20 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               </Link>
             ))}
           </nav>
+          {/* Same signOutAction() used by /learn and /account (lib/auth/actions.ts)
+              — a real supabase.auth.signOut() followed by redirect("/login"), not a
+              second/parallel auth mechanism. Kept visually distinct from the page
+              links above (text-only, no pill background) to read as an action
+              rather than another destination, matching how /learn's header
+              already distinguishes its own Log out button from its nav links. */}
+          <form action={signOutAction} className="shrink-0">
+            <button
+              type="submit"
+              className="rounded-full px-3 py-1.5 text-sm font-medium text-ink-500 hover:bg-ink-100 hover:text-ink-900"
+            >
+              Log out
+            </button>
+          </form>
         </div>
       </header>
       {children}
