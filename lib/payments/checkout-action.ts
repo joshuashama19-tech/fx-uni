@@ -100,7 +100,7 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
   // before either provider adapter is touched, and never from anything the
   // browser sent (the checkout form has no provider field at all). See
   // lib/payments/provider.ts.
-  const provider = resolvePaymentProvider();
+  const provider = await resolvePaymentProvider();
 
   const { data: insertedOrder, error: insertError } = await supabase
     .from("orders")

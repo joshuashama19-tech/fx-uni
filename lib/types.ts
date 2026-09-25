@@ -15,6 +15,14 @@ export type CourseAccessStatus = "active" | "revoked";
 // guessed after the fact).
 export type PaymentProvider = "paystack" | "korapay";
 
+// Added in supabase/migrations/0012_payment_provider_settings.sql. Which
+// Vercel deployment environment a payment_settings row (and the running
+// server itself, via lib/payments/provider.ts's resolvePaymentEnvironment())
+// belongs to. Preview and Production share one Supabase database, so this
+// is what keeps their active-provider settings from being the same row —
+// see that migration's file header.
+export type PaymentEnvironment = "production" | "preview";
+
 export interface ProfileRow {
   id: string;
   email: string;
@@ -124,6 +132,22 @@ export interface PricingSettingsRow {
   promotion_starts_at: string | null;
   promotion_ends_at: string | null;
   countdown_enabled: boolean;
+  updated_at: string;
+  updated_by: string | null;
+}
+
+// Row for the table added in supabase/migrations/0012_payment_provider_settings.sql.
+// One row per PaymentEnvironment (not a singleton — Preview and Production
+// share one Supabase database, so each environment needs its own row to
+// keep switching one from ever affecting the other). See
+// lib/payments/provider.ts's resolvePaymentProvider() for how the row
+// matching the CURRENT server's environment becomes the provider a new
+// checkout actually uses. Only ever read/written via the service-role
+// client — no RLS policy exists for anon/authenticated — see that
+// migration's file header.
+export interface PaymentSettingsRow {
+  environment: PaymentEnvironment;
+  active_provider: PaymentProvider;
   updated_at: string;
   updated_by: string | null;
 }

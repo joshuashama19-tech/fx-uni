@@ -57,6 +57,10 @@ export default async function GetStartedPage({
 
   const pricingState = await resolvePricing();
   const content = await getSiteContent();
+  // Only resolved for a signed-in visitor (CheckoutPanel is the only
+  // consumer) — matches the original behavior of not touching this at all
+  // on the signed-out auth screen.
+  const paymentProvider: PaymentProvider = user ? await resolvePaymentProvider() : "paystack";
   const next = params.next && params.next.startsWith("/") && !params.next.startsWith("//") ? params.next : "/learn";
 
   // Re-validates the code from the `?discount=` query string (set by
@@ -115,12 +119,11 @@ export default async function GetStartedPage({
             />
           ) : null}
 
-          {params.error ? (
-            <p className="mb-5 rounded-lg bg-brand-50 px-4 py-3 text-sm text-brand-700">{params.error}</p>
-          ) : null}
-
-          {params.discount_error ? (
-            <p className="mb-5 rounded-lg bg-brand-50 px-4 py-3 text-sm text-brand-700">{params.discount_error}</p>
+          {params.error || params.discount_error ? (
+            <div className="mb-5 space-y-1.5 rounded-lg bg-brand-50 px-4 py-3 text-sm text-brand-700">
+              {params.error ? <p>{params.error}</p> : null}
+              {params.discount_error ? <p>{params.discount_error}</p> : null}
+            </div>
           ) : null}
 
           {user ? (
@@ -129,7 +132,7 @@ export default async function GetStartedPage({
               pricing={pricingState}
               billingNote={content.pricing_billing_note}
               discountPreview={discountPreview}
-              paymentProvider={resolvePaymentProvider()}
+              paymentProvider={paymentProvider}
             />
           ) : (
             <AuthPanel mode={params.mode === "login" ? "login" : "signup"} next={next} />
@@ -201,9 +204,14 @@ function CheckoutPanel({
 }) {
   return (
     <div>
-      <p className="text-sm text-ink-500">Signed in as</p>
-      <p className="mb-6 font-medium text-ink-900">{email}</p>
+      {/* Account context — who's buying. Kept compact/muted so it doesn't
+          compete with the price for attention. */}
+      <p className="mb-6 text-sm text-ink-500">
+        Signed in as <span className="font-medium text-ink-900">{email}</span>
+      </p>
 
+      {/* What they're buying, how much, and any active discount/promotion —
+          one grouped card, in that order. */}
       <div className="mb-4 rounded-xl border border-ink-100 bg-ink-50 p-4">
         <p className="text-sm text-ink-500">{siteConfig.name} — full course</p>
         {pricing.isPromoActive ? (
@@ -220,11 +228,10 @@ function CheckoutPanel({
         <p className="mt-1 text-xs text-ink-500">{billingNote}</p>
 
         {discountPreview ? (
+          // The price above already shows the pre-discount amount, so this
+          // breakdown only needs to add what's new: the discount itself and
+          // the final total — not repeat the course price a second time.
           <dl className="mt-3 space-y-1 border-t border-ink-200 pt-3 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-ink-500">Course price</dt>
-              <dd className="text-ink-700">{pricing.payableFormatted}</dd>
-            </div>
             <div className="flex justify-between">
               <dt className="text-ink-500">
                 Discount (<span className="font-mono">{discountPreview.code}</span>)
@@ -239,6 +246,8 @@ function CheckoutPanel({
         ) : null}
       </div>
 
+      {/* Where to enter a discount code — the one place on the site this
+          happens. */}
       {!discountPreview ? (
         <form action={applyDiscountCodeAction} className="mb-6 flex gap-2">
           <label className="sr-only" htmlFor="discount_code_input">
@@ -261,15 +270,17 @@ function CheckoutPanel({
         </form>
       ) : (
         <form action="/get-started" className="mb-6">
-          <button
-            type="submit"
-            className="text-sm text-ink-500 underline underline-offset-2 hover:text-ink-800"
-          >
+          <button type="submit" className="text-sm text-ink-500 underline underline-offset-2 hover:text-ink-800">
             Remove discount code
           </button>
         </form>
       )}
 
+      {/* Which provider handles payment, directly above the one main
+          action — the single button that continues to payment. */}
+      <p className="mb-2 text-center text-xs text-ink-500">
+        Secure payment via {PAYMENT_PROVIDER_DISPLAY_NAME[paymentProvider]}.
+      </p>
       <form action={initializeCheckoutAction}>
         {discountPreview ? <input type="hidden" name="discount_code" value={discountPreview.code} /> : null}
         <button
@@ -280,10 +291,9 @@ function CheckoutPanel({
           <IconArrowRight className="h-4 w-4" />
         </button>
       </form>
-      <p className="mt-4 text-center text-xs text-ink-500">
-        You&apos;ll be redirected to {PAYMENT_PROVIDER_DISPLAY_NAME[paymentProvider]} to complete payment securely.
-        Access unlocks automatically once payment is confirmed.
-      </p>
+
+      {/* What happens after successful payment. */}
+      <p className="mt-3 text-center text-xs text-ink-500">Access unlocks automatically once payment is confirmed.</p>
 
       <p className="mt-4 text-center">
         <Link href="/account" className="text-sm text-ink-500 underline underline-offset-2 hover:text-ink-800">
