@@ -71,9 +71,6 @@ export function SignupForm({ next }: { next: string }) {
       >
         Create account
       </button>
-      <p className="text-center text-xs text-ink-500">
-        Can&apos;t find the confirmation email? Check your Spam, Junk, or Promotions folder.
-      </p>
     </form>
   );
 }

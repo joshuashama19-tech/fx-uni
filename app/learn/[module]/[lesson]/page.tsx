@@ -46,7 +46,7 @@ export default async function LessonPage({
         </Link>{" "}
         /{" "}
         <Link href={`/learn/${mod.slug}`} className="hover:text-ink-800">
-          Module {mod.order}
+          Module {mod.order}: {mod.title}
         </Link>{" "}
         / Lesson {lesson.order}
       </p>

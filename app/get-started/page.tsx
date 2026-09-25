@@ -97,6 +97,7 @@ export default async function GetStartedPage({
               icon={<IconMail className="h-5 w-5" />}
               title="Check your email"
               body={`We sent a confirmation link to ${params.email ?? "your email address"}. Click it to activate your account, then come back here.`}
+              note="Can't find it? Check your Spam, Junk, or Promotions folder."
             />
           ) : params.status === "no-access" ? (
             <StatusPanel
@@ -150,11 +151,13 @@ function StatusPanel({
   title,
   body,
   tone = "info",
+  note,
 }: {
   icon: ReactNode;
   title: string;
   body: string;
   tone?: "info" | "warning";
+  note?: string;
 }) {
   const colors = tone === "warning" ? "bg-brand-50 text-brand-700" : "bg-ink-50 text-ink-700";
   return (
@@ -163,6 +166,11 @@ function StatusPanel({
       <div>
         <p className="text-sm font-semibold">{title}</p>
         <p className="mt-0.5 text-sm leading-relaxed">{body}</p>
+        {/* Only passed by the verify-email panel above — the "check your
+            spam folder" tip, moved here from SignupForm so it's shown while
+            the student is actually waiting for the email, not only on the
+            form before it's sent. */}
+        {note ? <p className="mt-1.5 text-xs leading-relaxed text-ink-500">{note}</p> : null}
       </div>
     </div>
   );

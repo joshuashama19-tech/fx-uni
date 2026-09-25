@@ -50,7 +50,7 @@ export default async function ExercisesPage({ params }: { params: Promise<{ modu
               type="submit"
               className="rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
             >
-              ✓ Mark Exercises Complete
+              Mark Exercises Complete
             </button>
           </form>
         )}

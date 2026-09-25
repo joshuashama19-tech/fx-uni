@@ -6,8 +6,9 @@ import { checkCourseAccess } from "@/lib/access";
 import { signInAction } from "@/lib/auth/actions";
 import { Container } from "@/components/ui/Container";
 import { siteConfig } from "@/lib/course-data";
+import { PasswordField } from "@/components/auth/PasswordField";
 
-export const metadata: Metadata = { title: "Log In" };
+export const metadata: Metadata = { title: "Log in" };
 
 export default async function LoginPage({
   searchParams,
@@ -62,16 +63,7 @@ export default async function LoginPage({
                 className="w-full rounded-lg border border-ink-200 bg-white px-4 py-3 text-sm text-ink-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
               />
             </label>
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-ink-700">Password</span>
-              <input
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                className="w-full rounded-lg border border-ink-200 bg-white px-4 py-3 text-sm text-ink-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
-              />
-            </label>
+            <PasswordField label="Password" name="password" autoComplete="current-password" required />
             <div className="text-right">
               <Link href="/forgot-password" className="text-xs text-ink-500 underline underline-offset-2 hover:text-ink-800">
                 Forgot password?
@@ -88,7 +80,7 @@ export default async function LoginPage({
           <p className="mt-6 text-center text-sm text-ink-500">
             New here?{" "}
             <Link href="/get-started?mode=signup" className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">
-              Create an account
+              Create account
             </Link>
           </p>
         </div>

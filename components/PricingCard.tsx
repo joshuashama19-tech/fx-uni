@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { Reveal } from "./ui/Reveal";
 import { Button } from "./ui/Button";
 import { IconCheck } from "./icons";
@@ -14,14 +13,15 @@ type PricingCardProps = {
 };
 
 /**
- * Pure presentation/interaction (the coupon input's local state). The
- * pricing state itself is resolved server-side (components/PricingSection.tsx
- * -> lib/pricing.ts's resolvePricing()) and passed in whole — this component
- * never re-derives or overrides any part of it. Whatever it shows here is
- * exactly what checkout will charge.
+ * Pure presentation (no local interactive state). The discount-code entry
+ * point lives on /get-started only (app/get-started/page.tsx's
+ * CheckoutPanel) — this card intentionally has no coupon/discount UI of its
+ * own. The pricing state itself is resolved server-side
+ * (components/PricingSection.tsx -> lib/pricing.ts's resolvePricing()) and
+ * passed in whole — this component never re-derives or overrides any part
+ * of it. Whatever it shows here is exactly what checkout will charge.
  */
 export function PricingCard({ pricingState, billingNote }: PricingCardProps) {
-  const [coupon, setCoupon] = useState("");
   const promo = pricingState.isPromoActive;
 
   return (
@@ -79,34 +79,12 @@ export function PricingCard({ pricingState, billingNote }: PricingCardProps) {
             ))}
           </ul>
 
-          <div className="mt-7">
-            <label htmlFor="coupon" className="mb-2 block text-xs font-medium text-ink-400">
-              {pricing.couponPlaceholder}
-            </label>
-            <div className="flex gap-2">
-              <input
-                id="coupon"
-                type="text"
-                value={coupon}
-                onChange={(e) => setCoupon(e.target.value)}
-                placeholder="Enter code"
-                className="w-full rounded-full border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm text-white placeholder:text-ink-500 focus-visible:border-brand-400"
-              />
-              <button
-                type="button"
-                className="shrink-0 rounded-full border border-white/15 px-4 py-2.5 text-sm font-semibold text-ink-200 transition hover:bg-white/10"
-              >
-                Apply
-              </button>
-            </div>
-          </div>
-
           <Button href={pricing.ctaHref} size="lg" className="mt-7 w-full">
             {pricing.ctaLabel}
           </Button>
 
           <p className="mt-5 text-center text-xs text-ink-500">
-            {billingNote} &middot; Secure Paystack checkout &middot; Private student access
+            {billingNote} &middot; Secure checkout &middot; Private student access
           </p>
         </div>
       </div>
