@@ -30,26 +30,30 @@ export function PricingCard({ pricingState, billingNote }: PricingCardProps) {
           distinct card now that PricingSection's own background is dark
           too (Final Premium Landing Page Redesign, req. #10) — visual only,
           no change to any pricing value or logic below. */}
-      <div className="rounded-3xl border border-white/10 bg-ink-900 p-7 shadow-glow sm:p-9">
+      <div className="rounded-3xl border border-white/10 bg-ink-900 p-8 shadow-glow sm:p-10">
+        {/* Offer block: eyebrow/badge, price, savings, countdown — grouped
+            together so the "what am I paying and why" story reads as one
+            unit before the divider. Every value below is still exactly what
+            was already here; only the grouping/spacing changed. */}
         <div>
           {promo ? (
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-brand-400">
-              {pricingState.promotionTitle}
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-brand-400">
+                {pricingState.promotionTitle}
+              </p>
+              <span className="rounded-full bg-brand-600 px-3 py-1 text-sm font-bold text-white">
+                {pricingState.discountPercent}% OFF
+              </span>
+            </div>
           ) : null}
 
-          <div className="mt-2 flex flex-wrap items-baseline gap-3">
-            {promo ? (
-              <span className="text-lg font-medium text-ink-500 line-through">
-                {pricingState.regularPriceFormatted}
-              </span>
-            ) : null}
+          <div className={`flex flex-wrap items-baseline gap-x-3 gap-y-1 ${promo ? "mt-3" : ""}`}>
             <span className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
               {pricingState.payableFormatted}
             </span>
             {promo ? (
-              <span className="rounded-full bg-brand-600 px-3 py-1 text-sm font-bold text-white">
-                {pricingState.discountPercent}% OFF
+              <span className="text-lg font-medium text-ink-500 line-through">
+                {pricingState.regularPriceFormatted}
               </span>
             ) : null}
           </div>
@@ -67,23 +71,29 @@ export function PricingCard({ pricingState, billingNote }: PricingCardProps) {
           {promo && pricingState.countdownEnabled && pricingState.endsAt ? (
             <PromoCountdown endsAt={pricingState.endsAt} label="Special enrollment offer ends in" />
           ) : null}
+        </div>
 
-          <ul className="mt-7 space-y-3">
+        {/* Divider separates the offer/price block above from "what's
+            included" below — same features, just a clearer visual break
+            instead of everything running together in one column. */}
+        <div className="mt-7 border-t border-white/10 pt-7">
+          <ul className="space-y-3.5">
             {pricing.features.map((feature) => (
-              <li key={feature} className="flex items-start gap-3 text-sm text-ink-100 sm:text-base">
+              <li key={feature} className="flex items-start gap-3 text-sm leading-relaxed text-ink-100 sm:text-base">
                 <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-500/20 text-brand-300">
                   <IconCheck className="h-3.5 w-3.5" />
                 </span>
-                {feature}
+                <span>{feature}</span>
               </li>
             ))}
           </ul>
+        </div>
 
-          <Button href={pricing.ctaHref} size="lg" className="mt-7 w-full">
+        <div className="mt-8">
+          <Button href={pricing.ctaHref} size="lg" className="w-full">
             {pricing.ctaLabel}
           </Button>
-
-          <p className="mt-5 text-center text-xs text-ink-500">Secure checkout &middot; Private student access</p>
+          <p className="mt-4 text-center text-xs text-ink-500">Secure checkout &middot; Private student access</p>
         </div>
       </div>
     </Reveal>
