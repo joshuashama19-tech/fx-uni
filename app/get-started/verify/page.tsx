@@ -29,7 +29,19 @@ export default async function VerifyPaymentPage({
   try {
     const result = await confirmSuccessfulPayment({ reference, source: "return" });
     outcome = result.outcome;
-  } catch {
+  } catch (err) {
+    // Previously silent: confirmSuccessfulPayment() throws here whenever the
+    // provider's own verify call itself fails (network error, non-2xx
+    // response, or a falsy top-level `status` in the envelope — see
+    // verifyCharge()/verifyTransaction()), as distinct from a completed
+    // verify that simply reports the charge as unsuccessful (that path
+    // returns outcome: "verification_failed" below, not a throw). Without
+    // this log, that failure — and the provider's own error message, e.g.
+    // "Korapay verify failed: ..." — left no trace anywhere, the same gap
+    // fixed in lib/payments/checkout-action.ts's catch block. Logs the
+    // message only, never KORAPAY_SECRET_KEY/PAYSTACK_SECRET_KEY, which
+    // never appear in this error to begin with.
+    console.error("[verify] confirmSuccessfulPayment threw", reference, err);
     return (
       <StatusPage
         tone="warning"
