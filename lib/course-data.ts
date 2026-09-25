@@ -46,13 +46,13 @@ export const nav = {
     { label: "How It Works", href: "#how-it-works" },
     { label: "FAQ", href: "#faq" },
   ],
-  ctaLabel: "Get Started",
+  ctaLabel: "Get Course Access",
   ctaHref: "#pricing",
 };
 
 export const announcement = {
   text: "New cohort enrollment is open — structured lessons, beginner to intermediate.",
-  ctaLabel: "See what's included",
+  ctaLabel: "See What's Included",
   ctaHref: "#curriculum",
   dismissible: true,
 };
@@ -483,7 +483,7 @@ export const pricing = {
     "Secure, personal course access on mobile and desktop",
     "Your progress and completed lessons saved to your account",
   ],
-  paymentNote: "Payments are processed securely through Paystack.",
+  paymentNote: "Payments are processed securely.",
 };
 
 // FOMO / loss-aversion copy shown near the pricing section (Final Promotion
