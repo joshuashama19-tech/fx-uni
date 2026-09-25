@@ -8,7 +8,6 @@ import { CoursePreviewSection } from "@/components/CoursePreviewSection";
 import { AudienceFitSection } from "@/components/AudienceFitSection";
 import { WhatYouGetSection } from "@/components/WhatYouGetSection";
 import { PricingSection } from "@/components/PricingSection";
-import { RiskDisclaimerSection } from "@/components/RiskDisclaimerSection";
 import { FAQSection } from "@/components/FAQSection";
 import { FinalCtaSection } from "@/components/FinalCtaSection";
 
@@ -18,8 +17,8 @@ import { FinalCtaSection } from "@/components/FinalCtaSection";
 // (real student quotes — see below)  3. Why FX University / structured
 // learning  4. What You'll Learn (high-level)  5. Inside the Learning
 // Experience  6. Who It's For  7. What You Get  8. Pricing (incl. special
-// enrollment offer)  8b. Risk Disclaimer (see below)  9. FAQ  10. Final CTA
-// 11. Minimal footer/legal (rendered by app/course/layout.tsx's <Footer />)
+// enrollment offer)  9. FAQ  10. Final CTA  11. Minimal footer/legal
+// (rendered by app/course/layout.tsx's <Footer />)
 //
 // TestimonialsSection (step 2c) was remounted here, right after the
 // numeric social-proof stats and before the objection-handling copy —
@@ -29,18 +28,19 @@ import { FinalCtaSection } from "@/components/FinalCtaSection";
 // app/admin/testimonials), so this is a no-op until an admin actually
 // publishes one.
 //
-// RiskDisclaimerSection (step 8b) was mounted here, directly after Pricing
-// and before FAQ, so the risk disclosure sits right at the point a visitor
-// is deciding whether to enroll — its wording is unchanged from
-// lib/course-data.ts's existing `riskDisclaimer` content. Its section id
-// ("risk-disclaimer") is now also the target of the footer's "Risk
-// Disclaimer" link (previously pointed at /terms) and of a reference to it
-// from /terms.
+// RiskDisclaimerSection is intentionally NOT mounted here: the full risk
+// disclaimer must not appear visibly in the normal sales-page flow. Its
+// content and the "risk-disclaimer" section id it renders remain unchanged
+// in components/RiskDisclaimerSection.tsx and lib/course-data.ts — only
+// this page's mount was removed. The footer's "Risk Disclaimer" link now
+// points to /risk-disclaimer, a dedicated page that reuses this same
+// component (see app/risk-disclaimer/page.tsx) — not to an anchor on this
+// page.
 //
 // The remaining sections previously here (Problem/Solution/Process/
-// Benefits/Outcomes/Bonuses/OpportunityCost/HowItWorks) are still not part
-// of the sales-page flow — their component files remain in the repo,
-// unused, so no legal/content/architecture is deleted. The full
+// Benefits/Outcomes/Bonuses/OpportunityCost/HowItWorks/RiskDisclaimer) are
+// still not part of the sales-page flow — their component files remain in
+// the repo, unused, so no legal/content/architecture is deleted. The full
 // lesson-level curriculum accordion was replaced by CurriculumSection's
 // high-level overview per req. #2.
 export default function CoursePage() {
@@ -56,7 +56,6 @@ export default function CoursePage() {
       <AudienceFitSection />
       <WhatYouGetSection />
       <PricingSection />
-      <RiskDisclaimerSection />
       <FAQSection />
       <FinalCtaSection />
     </>

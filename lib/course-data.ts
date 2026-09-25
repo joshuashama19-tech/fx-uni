@@ -609,7 +609,7 @@ export const footer = {
       links: [
         { label: "Privacy Policy", href: "/privacy" },
         { label: "Terms of Service", href: "/terms" },
-        { label: "Risk Disclaimer", href: "/course#risk-disclaimer" },
+        { label: "Risk Disclaimer", href: "/risk-disclaimer" },
       ],
     },
   ],

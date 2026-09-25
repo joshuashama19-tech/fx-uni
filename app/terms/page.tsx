@@ -154,7 +154,7 @@ const SECTIONS: Section[] = [
         Trading Forex carries a substantial risk of loss and may not be suitable for every individual. Our full
         Risk Disclaimer — covering leverage, the educational-only nature of this course, and the limitations of
         past examples — is set out in full on the course page and forms part of these Terms:{" "}
-        <Link href="/course#risk-disclaimer" className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">
+        <Link href="/risk-disclaimer" className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">
           read the Risk Disclaimer
         </Link>
         .
