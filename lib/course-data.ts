@@ -470,11 +470,13 @@ export const pricing = {
   headline: "One course. One price. Full access.",
   subheadline:
     "Everything from the fundamentals to a full trading plan, in one structured course — here's exactly what's included.",
-  couponPlaceholder: "Have a coupon code?",
   // The actual price/discount shown alongside this label comes from
   // lib/pricing.ts's resolvePricing() (admin-controlled, database-driven —
   // see /admin/pricing), never from this file.
-  ctaLabel: "Get Full Course Access →",
+  // ctaLabel matches the site-wide "Get Course Access" CTA used in nav,
+  // Hero, and the final CTA (Batch 5 CTA-consistency fix) — this was
+  // previously the one outlier ("Get Full Course Access →").
+  ctaLabel: "Get Course Access",
   ctaHref: "/get-started",
   features: [
     "All 10 modules — fundamentals through to a full trading plan",

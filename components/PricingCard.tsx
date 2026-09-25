@@ -83,9 +83,7 @@ export function PricingCard({ pricingState, billingNote }: PricingCardProps) {
             {pricing.ctaLabel}
           </Button>
 
-          <p className="mt-5 text-center text-xs text-ink-500">
-            {billingNote} &middot; Secure checkout &middot; Private student access
-          </p>
+          <p className="mt-5 text-center text-xs text-ink-500">Secure checkout &middot; Private student access</p>
         </div>
       </div>
     </Reveal>

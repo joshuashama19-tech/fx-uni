@@ -17,8 +17,13 @@ const sidebarIcons = [IconLayers, IconBook, IconTarget, IconCompass];
  * cards, so visitors can actually read it as "a real learning platform."
  */
 export function CoursePreviewSection() {
+  // id changed from "how-it-works" to "course-preview" (Batch 5): the
+  // nav's "How It Works" link (#how-it-works) was landing here — a
+  // product-UI mockup, not an explanation of account/payment/access —
+  // because this was the only section using that id. HowItWorksSection
+  // now owns #how-it-works; see app/course/page.tsx.
   return (
-    <section id="how-it-works" className="bg-white py-20 sm:py-24">
+    <section id="course-preview" className="bg-white py-20 sm:py-24">
       <Container>
         <SectionHeading
           eyebrow={insideExperience.eyebrow}

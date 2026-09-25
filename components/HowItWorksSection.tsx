@@ -5,7 +5,7 @@ import { Reveal } from "./ui/Reveal";
 
 export function HowItWorksSection() {
   return (
-    <section className="bg-white py-20 sm:py-24">
+    <section id="how-it-works" className="bg-white py-20 sm:py-24">
       <Container>
         <SectionHeading eyebrow={howItWorks.eyebrow} headline={howItWorks.headline} />
 
