@@ -13,6 +13,10 @@ async function getRecentOrders(): Promise<(OrderRow & { email: string | null })[
   const { data: orders } = await db
     .from("orders")
     .select("*")
+    // Test Mode orders (supabase/migrations/0013_test_mode.sql) are
+    // deliberately excluded here — this page is the production payment
+    // ledger. See /admin/test-mode for the isolated equivalent view.
+    .eq("is_test", false)
     .order("created_at", { ascending: false })
     .limit(PAGE_SIZE);
 
@@ -58,7 +62,8 @@ export default async function AdminOrdersPage() {
       <div className="mx-auto max-w-5xl">
         <h1 className="text-2xl font-semibold text-ink-950">Orders</h1>
         <p className="mt-1 text-sm text-ink-500">
-          Most recent {PAGE_SIZE} orders, newest first. Status reflects Paystack&apos;s own verification result.
+          Most recent {PAGE_SIZE} orders, newest first. Status reflects the payment provider&apos;s verification
+          result.
         </p>
 
         <div className="mt-8 overflow-hidden rounded-xl border border-ink-100 bg-white">

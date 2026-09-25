@@ -7,8 +7,10 @@ import { checkCourseAccess, getCourseId } from "@/lib/access";
 import { resolvePricing } from "@/lib/pricing";
 import { initializeTransaction, generateOrderReference } from "@/lib/payments/paystack";
 import { initializeCharge } from "@/lib/payments/korapay";
+import { initializeCharge as initializeTestCharge } from "@/lib/payments/test-provider";
 import { resolvePaymentProvider } from "@/lib/payments/provider";
 import { validateDiscountCode, discountErrorMessage, normalizeDiscountCode } from "@/lib/discounts";
+import type { PaymentProvider, ProfileRow } from "@/lib/types";
 
 function getSiteUrl(): string {
   return process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "http://localhost:3000";
@@ -34,6 +36,13 @@ function getSiteUrl(): string {
  * preview was, and completely independently of it. The browser is never
  * trusted to say a code is valid or what it's worth — only this
  * server-side re-check decides the amount actually charged.
+ *
+ * Test Mode: whether THIS checkout is a test one is decided here too, from
+ * nothing but the acting user's own profiles.is_test (never client input,
+ * never a query string) — see supabase/migrations/0013_test_mode.sql. A
+ * test account's checkout never calls resolvePaymentProvider() at all, so
+ * Production's/Preview's own active-provider setting is never consulted or
+ * affected by a test account existing or checking out.
  */
 export async function initializeCheckoutAction(formData: FormData): Promise<void> {
   const supabase = await createClient();
@@ -49,6 +58,17 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
   if (access.authorized) {
     redirect("/learn");
   }
+
+  // The ONLY place a checkout is decided to be a test one — read directly
+  // from the acting user's own profiles row (RLS already lets a user select
+  // their own profile; see profiles_select_own in 0001_init.sql), never from
+  // anything the browser sent. A profile row not found at all (should be
+  // impossible — handle_new_user() creates one on signup) fails closed to
+  // false, i.e. treated as a real checkout, never the reverse.
+  const { data: profile } = await supabase.from("profiles").select("is_test").eq("id", user.id).maybeSingle<
+    Pick<ProfileRow, "is_test">
+  >();
+  const isTestAccount = profile?.is_test === true;
 
   const rl = rateLimit(`checkout:${user.id}`, 10, 15 * 60);
   if (!rl.allowed) {
@@ -97,10 +117,13 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
   const reference = generateOrderReference();
 
   // The ONLY place a new checkout's provider is decided — server-side,
-  // before either provider adapter is touched, and never from anything the
-  // browser sent (the checkout form has no provider field at all). See
-  // lib/payments/provider.ts.
-  const provider = await resolvePaymentProvider();
+  // before any provider adapter is touched, and never from anything the
+  // browser sent (the checkout form has no provider field at all). A test
+  // account's order is always 'test', decided directly from isTestAccount
+  // above — resolvePaymentProvider() (lib/payments/provider.ts), and
+  // therefore Production's/Preview's own active-provider setting, is never
+  // even called for a test account.
+  const provider: PaymentProvider = isTestAccount ? "test" : await resolvePaymentProvider();
 
   const { data: insertedOrder, error: insertError } = await supabase
     .from("orders")
@@ -112,6 +135,7 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
       status: "pending",
       paystack_reference: reference,
       payment_provider: provider,
+      is_test: isTestAccount,
       base_amount_minor_units: baseAmountMinorUnits,
       discount_code_id: discountCodeId,
       discount_code: discountCode,
@@ -128,7 +152,12 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
 
   let checkoutRedirectTarget: string;
   try {
-    if (provider === "korapay") {
+    if (provider === "test") {
+      // No network call, ever — just this app's own in-app simulated
+      // checkout page. See lib/payments/test-provider.ts.
+      const result = await initializeTestCharge({ reference });
+      checkoutRedirectTarget = result.checkoutUrl;
+    } else if (provider === "korapay") {
       const result = await initializeCharge({
         email: user.email!,
         amountMinorUnits,

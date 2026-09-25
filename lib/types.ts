@@ -6,14 +6,23 @@
 export type OrderStatus = "pending" | "successful" | "failed" | "cancelled" | "refunded" | "disputed";
 export type CourseAccessStatus = "active" | "revoked";
 
-// Added in supabase/migrations/0011_payment_provider.sql. Which payment
+// Added in supabase/migrations/0011_payment_provider.sql (paystack/korapay)
+// and supabase/migrations/0013_test_mode.sql ('test'). Which payment
 // provider's API was used to initialize/verify a given order — see
 // lib/payments/provider.ts (the one place that decides which provider a
 // NEW checkout uses) and lib/payments/access-activation.ts (which reads an
 // existing order's own payment_provider to know which provider's verify
 // API to re-check against, so provider selection is never re-derived or
-// guessed after the fact).
-export type PaymentProvider = "paystack" | "korapay";
+// guessed after the fact). 'test' is never reachable through
+// resolvePaymentProvider() — it's decided directly from the acting user's
+// own profiles.is_test in lib/payments/checkout-action.ts, before that
+// resolution ever runs. See lib/payments/test-provider.ts.
+export type PaymentProvider = "paystack" | "korapay" | "test";
+
+// The outcome a test account chose on the in-app simulated checkout page
+// (app/get-started/test-checkout). See supabase/migrations/0013_test_mode.sql's
+// test_payment_simulations table and lib/payments/test-provider.ts.
+export type TestPaymentOutcome = "success" | "failed" | "cancelled";
 
 // Added in supabase/migrations/0012_payment_provider_settings.sql. Which
 // Vercel deployment environment a payment_settings row (and the running
@@ -30,6 +39,11 @@ export interface ProfileRow {
   is_admin: boolean;
   created_at: string;
   updated_at: string;
+  // Added in supabase/migrations/0013_test_mode.sql. True only for a
+  // dedicated test account created via the admin-only "create test account"
+  // action — see lib/admin/test-mode-actions.ts. Pinned against the
+  // authenticated role the same way is_admin is (prevent_self_admin_grant()).
+  is_test: boolean;
 }
 
 export interface OrderRow {
@@ -57,6 +71,10 @@ export interface OrderRow {
   // 'paystack' for every order that existed before this column did, so
   // existing Paystack orders keep working with no other change.
   payment_provider: PaymentProvider;
+  // Added in supabase/migrations/0013_test_mode.sql. Copied from the
+  // acting user's own profiles.is_test at checkout-initiation time — never
+  // client input. See lib/payments/checkout-action.ts.
+  is_test: boolean;
 }
 
 export interface CourseAccessRow {
@@ -69,6 +87,14 @@ export interface CourseAccessRow {
   revoked_at: string | null;
   granted_by: string | null;
   notes: string | null;
+  // Added in supabase/migrations/0013_test_mode.sql. Copied from the
+  // granting order's own is_test in grantCourseAccess()
+  // (lib/payments/access-activation.ts), which additionally cross-checks it
+  // against the user's current profiles.is_test before granting at all.
+  // lib/access.ts's checkCourseAccessInternal() independently re-checks this
+  // against the requesting user's own profiles.is_test on every /learn
+  // request.
+  is_test: boolean;
 }
 
 export interface PaymentEventRow {
@@ -80,6 +106,23 @@ export interface PaymentEventRow {
   status: string | null;
   raw_payload: Record<string, unknown>;
   received_at: string;
+  // Added in supabase/migrations/0013_test_mode.sql. Copied from the order
+  // this event is for at the same insert (lib/payments/access-activation.ts's
+  // logPaymentEvent()) — lets this log be filtered without a join.
+  is_test: boolean;
+}
+
+// Row for the table added in supabase/migrations/0013_test_mode.sql. The
+// test counterpart to what Korapay's/Paystack's own hosted checkout + verify
+// API provide for a real payment — see lib/payments/test-provider.ts.
+export interface TestPaymentSimulationRow {
+  reference: string;
+  order_id: string;
+  outcome: TestPaymentOutcome;
+  amount_minor_units: number;
+  currency: string;
+  simulated_at: string;
+  simulated_by: string;
 }
 
 // Rows for the tables added in supabase/migrations/0005_admin_cms.sql.
@@ -183,4 +226,9 @@ export interface DiscountCodeRedemptionRow {
   code: string;
   discount_amount: number;
   created_at: string;
+  // Added in supabase/migrations/0013_test_mode.sql. Copied from the order
+  // this redemption is for. apply_discount_redemption() never increments
+  // discount_codes.usage_count when this is true — see that migration's
+  // header for the full discount-code isolation design.
+  is_test: boolean;
 }

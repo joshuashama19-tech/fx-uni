@@ -12,14 +12,18 @@ async function getDashboardCounts() {
   const db = createAdminClient();
   const courseId = getCourseId();
 
+  // is_test = false on every query here: Test Mode data (supabase/migrations/
+  // 0013_test_mode.sql) must never appear in these counts — see
+  // /admin/test-mode for the isolated equivalent view.
   const [{ count: totalOrders }, { count: paidOrders }, { count: activeAccess }] = await Promise.all([
-    db.from("orders").select("id", { count: "exact", head: true }),
-    db.from("orders").select("id", { count: "exact", head: true }).eq("status", "successful"),
+    db.from("orders").select("id", { count: "exact", head: true }).eq("is_test", false),
+    db.from("orders").select("id", { count: "exact", head: true }).eq("status", "successful").eq("is_test", false),
     db
       .from("course_access")
       .select("id", { count: "exact", head: true })
       .eq("course_id", courseId)
-      .eq("status", "active"),
+      .eq("status", "active")
+      .eq("is_test", false),
   ]);
 
   return {

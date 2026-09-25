@@ -4,11 +4,18 @@ import { requireAdmin } from "@/lib/access";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { updatePaymentProviderAction } from "@/lib/admin/payment-provider-actions";
 import { resolvePaymentEnvironment } from "@/lib/payments/provider";
-import type { PaymentEnvironment, PaymentProvider, PaymentSettingsRow } from "@/lib/types";
+import type { PaymentEnvironment, PaymentSettingsRow } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Admin — Payment Provider" };
 
-const PROVIDER_LABEL: Record<PaymentProvider, string> = {
+// Deliberately narrower than the full PaymentProvider union (which also
+// includes 'test' as of supabase/migrations/0013_test_mode.sql) — this page
+// only ever shows/switches Production's or Preview's REAL active provider;
+// 'test' is never reachable here at all (see lib/payments/provider.ts's
+// resolvePaymentProvider(), which never returns it, and
+// lib/admin/payment-provider-actions.ts's updatePaymentProviderAction, which
+// refuses any value other than 'paystack'/'korapay').
+const PROVIDER_LABEL: Record<"paystack" | "korapay", string> = {
   paystack: "Paystack",
   korapay: "Korapay",
 };
@@ -18,7 +25,7 @@ const ENVIRONMENT_LABEL: Record<PaymentEnvironment, string> = {
   preview: "Preview",
 };
 
-async function getActiveProvider(environment: PaymentEnvironment): Promise<PaymentProvider> {
+async function getActiveProvider(environment: PaymentEnvironment): Promise<"paystack" | "korapay"> {
   const db = createAdminClient();
   const { data } = await db
     .from("payment_settings")
@@ -60,7 +67,7 @@ export default async function AdminPaymentProviderPage({
   const activeProvider = await getActiveProvider(environment);
   const environmentLabel = ENVIRONMENT_LABEL[environment];
 
-  const pendingConfirm: PaymentProvider | null =
+  const pendingConfirm: "paystack" | "korapay" | null =
     params.confirm === "paystack" || params.confirm === "korapay" ? params.confirm : null;
 
   return (

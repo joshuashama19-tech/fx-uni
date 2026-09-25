@@ -11,6 +11,7 @@ import { siteConfig } from "@/lib/course-data";
 import { getSiteContent } from "@/lib/content";
 import { resolvePricing, formatMinorUnits } from "@/lib/pricing";
 import { validateDiscountCode } from "@/lib/discounts";
+import type { ProfileRow } from "@/lib/types";
 import { Container } from "@/components/ui/Container";
 import { IconArrowRight, IconAlert, IconMail } from "@/components/icons";
 import { SignupForm } from "@/components/auth/SignupForm";
@@ -59,8 +60,21 @@ export default async function GetStartedPage({
   const content = await getSiteContent();
   // Only resolved for a signed-in visitor (CheckoutPanel is the only
   // consumer) — matches the original behavior of not touching this at all
-  // on the signed-out auth screen.
-  const paymentProvider: PaymentProvider = user ? await resolvePaymentProvider() : "paystack";
+  // on the signed-out auth screen. Mirrors checkout-action.ts's own
+  // decision exactly: a test account's provider is always 'test', decided
+  // directly from profiles.is_test, and resolvePaymentProvider() (Production's/
+  // Preview's own active-provider setting) is never even called for one —
+  // otherwise this copy could show "Paystack"/"Korapay" right before the
+  // student is actually sent to the in-app simulated checkout.
+  let paymentProvider: PaymentProvider = "paystack";
+  if (user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("is_test")
+      .eq("id", user.id)
+      .maybeSingle<Pick<ProfileRow, "is_test">>();
+    paymentProvider = profile?.is_test ? "test" : await resolvePaymentProvider();
+  }
   const next = params.next && params.next.startsWith("/") && !params.next.startsWith("//") ? params.next : "/learn";
 
   // Re-validates the code from the `?discount=` query string (set by
@@ -187,6 +201,7 @@ function StatusPanel({
 const PAYMENT_PROVIDER_DISPLAY_NAME: Record<PaymentProvider, string> = {
   paystack: "Paystack",
   korapay: "Korapay",
+  test: "Test Mode (simulated, no real payment)",
 };
 
 function CheckoutPanel({
