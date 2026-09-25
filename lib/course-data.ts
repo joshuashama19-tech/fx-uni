@@ -607,9 +607,9 @@ export const footer = {
     {
       title: "Legal",
       links: [
-        { label: "Privacy Policy", href: "/privacy" }, // PLACEHOLDER page
-        { label: "Terms of Service", href: "/terms" }, // PLACEHOLDER page
-        { label: "Risk Disclaimer", href: "/terms" },
+        { label: "Privacy Policy", href: "/privacy" },
+        { label: "Terms of Service", href: "/terms" },
+        { label: "Risk Disclaimer", href: "/course#risk-disclaimer" },
       ],
     },
   ],
