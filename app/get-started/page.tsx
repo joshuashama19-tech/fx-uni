@@ -348,8 +348,8 @@ function CheckoutPanel({
                 className="mt-0.5"
               />
               <span>
-                <span className="block text-sm font-semibold text-ink-900">Local Payment</span>
-                <span className="block text-xs text-ink-500">Powered by {PAYMENT_PROVIDER_DISPLAY_NAME[paymentProvider]}</span>
+                <span className="block text-sm font-semibold text-ink-900">Secure Online Payment</span>
+                <span className="block text-xs text-ink-500">Pay securely online</span>
               </span>
             </label>
 
@@ -367,10 +367,8 @@ function CheckoutPanel({
                   className="mt-0.5"
                 />
                 <span>
-                  <span className="block text-sm font-semibold text-ink-900">Pay with Crypto</span>
-                  <span className="block text-xs text-ink-500">
-                    USDT, USDC &amp; supported cryptocurrencies · Powered by NOWPayments · International payment
-                  </span>
+                  <span className="block text-sm font-semibold text-ink-900">Crypto Payment</span>
+                  <span className="block text-xs text-ink-500">Pay securely with cryptocurrency</span>
                 </span>
               </label>
             ) : null}
