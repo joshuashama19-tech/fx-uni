@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyTransaction } from "@/lib/payments/paystack";
 import { verifyCharge as verifyKorapayCharge } from "@/lib/payments/korapay";
 import { verifyCharge as verifyTestCharge } from "@/lib/payments/test-provider";
+import { verifyNowPaymentsPayment, NOWPAYMENTS_NONTERMINAL_STATUSES } from "@/lib/payments/nowpayments";
 import { getCourseId } from "@/lib/access";
 import { redeemDiscountCode } from "@/lib/discounts";
 import type { OrderRow, OrderStatus, PaymentProvider, ProfileRow } from "@/lib/types";
@@ -68,11 +69,27 @@ async function verifyPayment(provider: PaymentProvider, reference: string): Prom
   if (provider === "korapay") {
     return verifyKorapayCharge(reference);
   }
+  if (provider === "nowpayments") {
+    return verifyNowPaymentsPayment(reference);
+  }
   return verifyTransaction(reference);
 }
 
 interface ConfirmResult {
-  outcome: "granted" | "already_processed" | "order_not_found" | "verification_failed" | "mismatch";
+  outcome:
+    | "granted"
+    | "already_processed"
+    | "order_not_found"
+    | "verification_failed"
+    | "mismatch"
+    // NOWPayments-only: the payment is still waiting/confirming/confirmed/
+    // sending on the blockchain — never granted, and deliberately never
+    // routed through the dedupe-then-"already_processed" path below either
+    // (see confirmSuccessfulPayment's own non-terminal check), since that
+    // would incorrectly tell a student who reloads mid-confirmation that
+    // their payment is done. See NOWPAYMENTS_NONTERMINAL_STATUSES in
+    // lib/payments/nowpayments.ts.
+    | "pending_confirmation";
   orderId?: string;
 }
 
@@ -126,6 +143,36 @@ export async function confirmSuccessfulPayment(params: {
   // the student was on Paystack's hosted checkout page.
   const matchesExpectedAmount = verification.amountMinorUnits === order.amount_minor_units;
   const matchesExpectedCurrency = verification.currency === order.currency;
+
+  // NOWPayments-only: unlike Paystack/Korapay/Test, whose verify APIs only
+  // ever report a FINAL state by the time either call site reaches this
+  // function, a NOWPayments payment can still be waiting/confirming/
+  // confirmed/sending — genuinely "not decided yet", not a failure. This
+  // must be checked, and returned as its own outcome, BEFORE the
+  // dedupe-gated logPaymentEvent() call below: that call's dedupe_key is
+  // fixed per (source, eventType, reference) for the return-page path
+  // (eventType is always "verify" there), so a student reloading
+  // /get-started/verify while still "confirming" would otherwise hit the
+  // EXISTING dedupe row from their first visit and get back
+  // "already_processed" — which the verify page treats as grant-equivalent
+  // and redirects to /learn, incorrectly telling them they have access
+  // before they've actually paid. Logged under a status-suffixed key
+  // instead (so a waiting -> confirming transition is two distinct log
+  // rows, while repeated polls at the SAME status correctly collapse to
+  // one), and never proceeds past this point — no order/course_access
+  // mutation happens for a non-terminal NOWPayments status.
+  if (order.payment_provider === "nowpayments" && NOWPAYMENTS_NONTERMINAL_STATUSES.has(verification.status)) {
+    await logPaymentEvent(admin, {
+      dedupeKey: `${dedupeKey}:${verification.status}`,
+      orderId: order.id,
+      reference: params.reference,
+      eventType: params.eventType ?? "verify",
+      status: verification.status,
+      rawPayload: params.rawPayload ?? { verification },
+      isTest: order.is_test,
+    });
+    return { outcome: "pending_confirmation", orderId: order.id };
+  }
 
   const inserted = await logPaymentEvent(admin, {
     dedupeKey,
@@ -430,6 +477,66 @@ export async function handleKorapayChargebackLoss(params: {
 }
 
 /**
+ * NOWPayments counterpart to handleKorapayRefund() above, called only from
+ * app/api/webhooks/nowpayments/route.ts when an IPN reports payment_status
+ * = "refunded". NOWPayments' own documentation describes refunds as
+ * support-initiated (there is no merchant-triggered refund API this app
+ * calls) — this handler exists purely to react correctly if/when a
+ * "refunded" status is ever delivered via the same IPN endpoint as every
+ * other status, revoking access exactly like a Paystack/Korapay refund
+ * does. Idempotent via the same payment_events.dedupe_key mechanism as
+ * every other handler in this file.
+ */
+export async function handleNowPaymentsRefund(params: {
+  reference: string;
+  eventType: string; // "refunded" (NOWPayments' own payment_status value)
+  rawPayload: unknown;
+}): Promise<{ outcome: "revoked" | "already_processed" | "order_not_found" }> {
+  const admin = createAdminClient();
+  const dedupeKey = `webhook:${params.eventType}:${params.reference}`;
+
+  const { data: order } = await admin
+    .from("orders")
+    .select("*")
+    .eq("paystack_reference", params.reference)
+    .maybeSingle<OrderRow>();
+
+  if (!order) {
+    await logPaymentEvent(admin, {
+      dedupeKey,
+      orderId: null,
+      reference: params.reference,
+      eventType: params.eventType,
+      status: "order_not_found",
+      rawPayload: params.rawPayload,
+      isTest: false,
+    });
+    return { outcome: "order_not_found" };
+  }
+
+  const inserted = await logPaymentEvent(admin, {
+    dedupeKey,
+    orderId: order.id,
+    reference: params.reference,
+    eventType: params.eventType,
+    status: null,
+    rawPayload: params.rawPayload,
+    isTest: order.is_test,
+  });
+
+  if (!inserted) {
+    return { outcome: "already_processed" };
+  }
+
+  const newStatus: OrderStatus = "refunded";
+  await admin.from("orders").update({ status: newStatus }).eq("id", order.id);
+
+  await revokeCourseAccess(order.user_id, `nowpayments_${params.eventType}`);
+
+  return { outcome: "revoked" };
+}
+
+/**
  * Grants access from a verified order. Before writing anything, cross-checks
  * the order's own is_test against the user's CURRENT profiles.is_test —
  * refusing on any mismatch — so a course_access row can never authorize a
@@ -579,6 +686,22 @@ function mapFailureStatus(providerStatus: string): OrderStatus {
   // three separate buttons on app/get-started/test-checkout exist to
   // preserve.
   if (providerStatus === "abandoned" || providerStatus === "cancelled") return "cancelled";
+  // NOWPayments-only, both confirmed against its own documented status
+  // meanings (see lib/payments/nowpayments.ts): "expired" means the
+  // customer never sent funds within NOWPayments' payment window — no money
+  // ever moved, so this is treated the same as "cancelled" rather than
+  // "failed" (an attempted-but-declined charge), matching the distinction
+  // this function already draws between the two for Paystack/Test.
+  // "partially_paid" means the customer sent LESS than the full amount —
+  // access must never be granted (this app's finished-only success check
+  // already guarantees that, since partially_paid !== "finished"), and is
+  // deliberately mapped to "disputed" rather than a plain "failed": it's a
+  // fundamentally different case (funds DID arrive, just not enough) that
+  // needs a human to look at and decide — reusing "disputed" rather than
+  // growing OrderStatus with a NOWPayments-specific value, per a decision
+  // confirmed with Josh during planning.
+  if (providerStatus === "expired") return "cancelled";
+  if (providerStatus === "partially_paid") return "disputed";
   return "failed";
 }
 

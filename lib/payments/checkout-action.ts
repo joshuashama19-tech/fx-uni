@@ -8,9 +8,11 @@ import { resolvePricing } from "@/lib/pricing";
 import { initializeTransaction, generateOrderReference } from "@/lib/payments/paystack";
 import { initializeCharge } from "@/lib/payments/korapay";
 import { initializeCharge as initializeTestCharge } from "@/lib/payments/test-provider";
-import { resolvePaymentProvider } from "@/lib/payments/provider";
+import { initializePayment as initializeNowPaymentsPayment } from "@/lib/payments/nowpayments";
+import { resolvePaymentProvider, resolveCheckoutMethodSettings } from "@/lib/payments/provider";
 import { validateDiscountCode, discountErrorMessage, normalizeDiscountCode } from "@/lib/discounts";
-import type { PaymentProvider, ProfileRow } from "@/lib/types";
+import { siteConfig } from "@/lib/course-data";
+import type { CheckoutMethod, PaymentProvider, ProfileRow } from "@/lib/types";
 
 function getSiteUrl(): string {
   return process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "http://localhost:3000";
@@ -70,6 +72,26 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
   >();
   const isTestAccount = profile?.is_test === true;
 
+  // The ONLY place a checkout's payment METHOD (as opposed to which local
+  // provider) is decided — never from anything the browser sent taken at
+  // face value. requestedMethod is read from the form, but only ever acts
+  // as a request: it's re-validated against this environment's own
+  // crypto_enabled setting (resolveCheckoutMethodSettings(),
+  // lib/payments/provider.ts) right here, server-side, before it can
+  // influence anything. A tampered payment_method=crypto submission when
+  // crypto is disabled is silently coerced back to "local" — never an
+  // error, never a broken/exposed crypto option. A test account never even
+  // reaches this: it's forced to "local" outright and
+  // resolveCheckoutMethodSettings() (and therefore this environment's
+  // crypto setting) is never consulted for one, mirroring exactly how a
+  // test account already skips resolvePaymentProvider() below.
+  const requestedMethod = String(formData.get("payment_method") || "local");
+  const checkoutSettings = isTestAccount
+    ? { cryptoEnabled: false, defaultMethod: "local" as const }
+    : await resolveCheckoutMethodSettings();
+  const checkoutMethod: CheckoutMethod =
+    !isTestAccount && requestedMethod === "crypto" && checkoutSettings.cryptoEnabled ? "crypto" : "local";
+
   const rl = rateLimit(`checkout:${user.id}`, 10, 15 * 60);
   if (!rl.allowed) {
     redirect(`/get-started?error=${encodeURIComponent("Too many attempts. Please try again in a few minutes.")}`);
@@ -117,13 +139,19 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
   const reference = generateOrderReference();
 
   // The ONLY place a new checkout's provider is decided — server-side,
-  // before any provider adapter is touched, and never from anything the
-  // browser sent (the checkout form has no provider field at all). A test
-  // account's order is always 'test', decided directly from isTestAccount
-  // above — resolvePaymentProvider() (lib/payments/provider.ts), and
-  // therefore Production's/Preview's own active-provider setting, is never
-  // even called for a test account.
-  const provider: PaymentProvider = isTestAccount ? "test" : await resolvePaymentProvider();
+  // before any provider adapter is touched. A test account's order is
+  // always 'test', decided directly from isTestAccount above —
+  // resolvePaymentProvider() (lib/payments/provider.ts), and therefore
+  // Production's/Preview's own active-provider setting, is never even
+  // called for a test account. Otherwise, checkoutMethod above (already
+  // re-validated against crypto_enabled) decides between the crypto rail
+  // and the existing local-provider resolution — resolvePaymentProvider()
+  // is unchanged and still knows nothing about crypto at all.
+  const provider: PaymentProvider = isTestAccount
+    ? "test"
+    : checkoutMethod === "crypto"
+      ? "nowpayments"
+      : await resolvePaymentProvider();
 
   const { data: insertedOrder, error: insertError } = await supabase
     .from("orders")
@@ -178,6 +206,48 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
           "order-reference": reference,
         },
       });
+      checkoutRedirectTarget = result.checkoutUrl;
+    } else if (provider === "nowpayments") {
+      const result = await initializeNowPaymentsPayment({
+        amountMinorUnits,
+        currency,
+        orderId: reference,
+        orderDescription: `${siteConfig.name} — full course`,
+        // Built the same way redirectUrl above is — our own reference is
+        // embedded explicitly rather than relying on NOWPayments to append
+        // a recognizable query param on return, unlike Paystack's
+        // ?reference=/?trxref= and Korapay's own redirect_url convention.
+        successUrl: `${redirectUrl}?reference=${encodeURIComponent(reference)}`,
+        cancelUrl: `${getSiteUrl()}/get-started`,
+        ipnCallbackUrl: `${getSiteUrl()}/api/webhooks/nowpayments`,
+      });
+      // Records the invoice's own id as the best-known NOWPayments
+      // reference for this order so far — via the RPC, not a direct table
+      // write, because this Server Action runs as the authenticated user
+      // and orders has no RLS UPDATE policy for that role at all (see
+      // supabase/migrations/0014_nowpayments.sql's own header comment).
+      // There is no real *payment* yet at invoice-creation time (see
+      // lib/payments/nowpayments.ts's verifyNowPaymentsPayment() doc
+      // comment) — the webhook route overwrites this with the true
+      // payment_id the moment NOWPayments' first IPN reports one, before
+      // any verification happens.
+      const { error: referenceError } = await supabase.rpc("set_order_nowpayments_reference", {
+        p_order_id: insertedOrder.id,
+        p_payment_id: result.invoiceId,
+        p_pay_currency: null,
+      });
+      if (referenceError) {
+        // Never block the checkout itself on this — the invoice was
+        // already created and result.checkoutUrl is real and already
+        // charging in the amount the student was quoted; losing this
+        // placeholder id only means verifyNowPaymentsPayment() reports
+        // "waiting" (never a false grant or a false failure) until the
+        // webhook's own recordNowPaymentsReference() call fills in the real
+        // payment_id instead. Logged so a support investigation into a
+        // stuck order has a trail, same convention as every other
+        // non-fatal write failure in this file.
+        console.error("[checkout] set_order_nowpayments_reference failed", reference, referenceError);
+      }
       checkoutRedirectTarget = result.checkoutUrl;
     } else {
       const result = await initializeTransaction({

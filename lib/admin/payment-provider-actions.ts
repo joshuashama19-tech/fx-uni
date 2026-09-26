@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/access";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolvePaymentEnvironment } from "@/lib/payments/provider";
-import type { PaymentProvider } from "@/lib/types";
+import type { CheckoutMethod, PaymentProvider } from "@/lib/types";
 
 // Same pattern as lib/admin/pricing-actions.ts: the only writer for
 // payment_settings, calls requireAdmin() first, and goes through the
@@ -69,6 +69,54 @@ export async function updatePaymentProviderAction(formData: FormData): Promise<v
     // mode. requireAdmin() above is untouched; this only guards the write
     // itself.
     throw new Error(`Couldn't switch the active payment provider: ${error.message}`);
+  }
+
+  revalidatePath("/admin/payment-provider");
+  revalidatePath("/get-started");
+}
+
+// The Crypto Payments toggle + default-checkout-method setting — a
+// deliberately separate action from updatePaymentProviderAction above, on a
+// separate axis (supabase/migrations/0014_nowpayments.sql): this one never
+// touches active_provider, and the upsert below only names the columns it
+// actually sets, so Postgres's ON CONFLICT DO UPDATE leaves
+// active_provider exactly as updatePaymentProviderAction last set it — and,
+// symmetrically, that action's own upsert (which doesn't name these two
+// columns) leaves crypto_enabled/default_checkout_method untouched. Same
+// requireAdmin()-first, service-role-only, current-environment-only
+// pattern as the rest of this file.
+export async function updateCheckoutMethodSettingsAction(formData: FormData): Promise<void> {
+  const { user: admin } = await requireAdmin();
+
+  const cryptoEnabled = formData.get("crypto_enabled") === "on";
+
+  const requestedDefault = String(formData.get("default_checkout_method") || "");
+  if (requestedDefault !== "local" && requestedDefault !== "crypto") {
+    // Not a recognized method (a tampered form, or no selection) — refuse
+    // to write anything rather than guess. Same defensive pattern as
+    // updatePaymentProviderAction's own provider check above — worth
+    // flagging for review the same way: this is a runtime check, not a
+    // type-driven one, so a future third method value added to
+    // CheckoutMethod wouldn't be caught here by the compiler either.
+    return;
+  }
+  const default_checkout_method: CheckoutMethod = requestedDefault;
+
+  const environment = resolvePaymentEnvironment();
+
+  const db = createAdminClient();
+  const { error } = await db.from("payment_settings").upsert(
+    {
+      environment,
+      crypto_enabled: cryptoEnabled,
+      default_checkout_method,
+      updated_by: admin.id,
+    },
+    { onConflict: "environment" }
+  );
+
+  if (error) {
+    throw new Error(`Couldn't update crypto checkout settings: ${error.message}`);
   }
 
   revalidatePath("/admin/payment-provider");

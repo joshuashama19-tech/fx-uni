@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { confirmSuccessfulPayment } from "@/lib/payments/access-activation";
 import { Container } from "@/components/ui/Container";
-import { IconAlert, IconCheckCircle } from "@/components/icons";
+import { IconAlert, IconCheckCircle, IconClock } from "@/components/icons";
 import { siteConfig } from "@/lib/course-data";
 
 export const metadata: Metadata = { title: "Confirming Payment" };
@@ -56,6 +56,24 @@ export default async function VerifyPaymentPage({
     redirect("/learn?welcome=1");
   }
 
+  if (outcome === "pending_confirmation") {
+    // NOWPayments-only: the payment is still waiting/confirming/confirmed/
+    // sending on the blockchain — never treated as granted (see the
+    // non-terminal-status check in confirmSuccessfulPayment(),
+    // lib/payments/access-activation.ts) and never treated as failed
+    // either. No "try again" button here, unlike verification_failed below
+    // — retrying would start a SECOND order for a payment that may still
+    // legitimately complete; the existing order just needs more time.
+    return (
+      <StatusPage
+        tone="pending"
+        title="Confirming your crypto payment"
+        body="Your payment is being confirmed on the blockchain. This can take anywhere from a few minutes to over an hour depending on network conditions. Access unlocks automatically the moment it's confirmed — you don't need to pay again or keep this page open. If this hasn't resolved after a few hours, contact support with your reference below."
+        reference={reference}
+      />
+    );
+  }
+
   if (outcome === "verification_failed") {
     return (
       <StatusPage
@@ -96,7 +114,7 @@ function StatusPage({
   reference,
   showRetry,
 }: {
-  tone: "success" | "warning";
+  tone: "success" | "warning" | "pending";
   title: string;
   body: string;
   reference: string;
@@ -108,10 +126,20 @@ function StatusPage({
         <div className="rounded-2xl bg-white p-8 text-center shadow-xl">
           <div
             className={`mx-auto flex h-12 w-12 items-center justify-center rounded-full ${
-              tone === "success" ? "bg-ink-50 text-ink-700" : "bg-brand-50 text-brand-700"
+              tone === "success"
+                ? "bg-ink-50 text-ink-700"
+                : tone === "pending"
+                  ? "bg-ink-100 text-ink-600"
+                  : "bg-brand-50 text-brand-700"
             }`}
           >
-            {tone === "success" ? <IconCheckCircle className="h-6 w-6" /> : <IconAlert className="h-6 w-6" />}
+            {tone === "warning" ? (
+              <IconAlert className="h-6 w-6" />
+            ) : tone === "pending" ? (
+              <IconClock className="h-6 w-6" />
+            ) : (
+              <IconCheckCircle className="h-6 w-6" />
+            )}
           </div>
           <h1 className="mt-4 text-xl font-semibold text-ink-950">{title}</h1>
           <p className="mt-2 text-sm leading-relaxed text-ink-600">{body}</p>
