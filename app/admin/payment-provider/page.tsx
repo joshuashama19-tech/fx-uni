@@ -158,7 +158,7 @@ export default async function AdminPaymentProviderPage({
         <div className="mt-8">
           <h2 className="text-lg font-semibold text-ink-950">Crypto payments</h2>
           <p className="mt-1 text-sm text-ink-500">
-            Offers NOWPayments as a second checkout option ("Pay with Crypto") alongside{" "}
+            Offers NOWPayments as a second checkout option (&quot;Pay with Crypto&quot;) alongside{" "}
             {environmentLabel}&apos;s local provider above. Independent of the local-provider setting — turning
             crypto on or off never changes which of Paystack/Korapay is active, and vice versa.
           </p>
