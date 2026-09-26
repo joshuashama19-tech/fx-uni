@@ -90,6 +90,20 @@ async function checkCourseAccessInternal(): Promise<AccessCheckResult> {
     return { authorized: false, reason: "no_access" };
   }
 
+  // Test Mode isolation, re-checked at the actual authorization boundary
+  // (not only at grant time — see grantCourseAccess() in
+  // lib/payments/access-activation.ts, which already refuses to write a
+  // mismatched row in the first place). A course_access row can never
+  // authorize a user whose own profiles.is_test disagrees with it: this is
+  // what keeps a production user from ever being authorized by a test order,
+  // and a test user's access from ever being silently treated as a real paid
+  // enrollment, on every single request — not just the moment access was
+  // granted. A missing profile fails closed the same way every other
+  // service/auth failure here does.
+  if ((profile?.is_test ?? false) !== access.is_test) {
+    return { authorized: false, reason: "no_access" };
+  }
+
   return { authorized: true, user, profile: profile ?? null };
 }
 

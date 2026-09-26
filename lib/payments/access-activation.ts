@@ -2,9 +2,10 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyTransaction } from "@/lib/payments/paystack";
 import { verifyCharge as verifyKorapayCharge } from "@/lib/payments/korapay";
+import { verifyCharge as verifyTestCharge } from "@/lib/payments/test-provider";
 import { getCourseId } from "@/lib/access";
 import { redeemDiscountCode } from "@/lib/discounts";
-import type { OrderRow, OrderStatus, PaymentProvider } from "@/lib/types";
+import type { OrderRow, OrderStatus, PaymentProvider, ProfileRow } from "@/lib/types";
 
 // The single place that turns a payment signal into an actual state change
 // (order.status, course_access.status) — shared by every payment provider,
@@ -61,6 +62,9 @@ interface GenericVerifyResult {
  * provider-specific logic lives here.
  */
 async function verifyPayment(provider: PaymentProvider, reference: string): Promise<GenericVerifyResult> {
+  if (provider === "test") {
+    return verifyTestCharge(reference);
+  }
   if (provider === "korapay") {
     return verifyKorapayCharge(reference);
   }
@@ -98,6 +102,7 @@ export async function confirmSuccessfulPayment(params: {
       eventType: params.eventType ?? "verify",
       status: "order_not_found",
       rawPayload: params.rawPayload ?? {},
+      isTest: false,
     });
     return { outcome: "order_not_found" };
   }
@@ -129,6 +134,7 @@ export async function confirmSuccessfulPayment(params: {
     eventType: params.eventType ?? "verify",
     status: verification.status,
     rawPayload: params.rawPayload ?? { verification },
+    isTest: order.is_test,
   });
 
   if (!inserted) {
@@ -159,7 +165,15 @@ export async function confirmSuccessfulPayment(params: {
     await admin.from("orders").update({ status: "successful" }).eq("id", order.id);
   }
 
-  await grantCourseAccess(order.user_id, order.id);
+  const granted = await grantCourseAccess(order.user_id, order.id, order.is_test);
+  if (!granted) {
+    // grantCourseAccess() itself refused (order.is_test disagreed with the
+    // user's current profiles.is_test) — the order is recorded as successful
+    // above (an accurate record of what was verified), but access was
+    // deliberately not granted. Surface this the same way a genuine mismatch
+    // is surfaced elsewhere in this function, for manual review.
+    return { outcome: "mismatch", orderId: order.id };
+  }
 
   // Record the redemption (and increment the discount code's usage_count)
   // only now — after payment has been confirmed successful and access has
@@ -177,6 +191,7 @@ export async function confirmSuccessfulPayment(params: {
       orderId: order.id,
       code: order.discount_code,
       discountAmountMinorUnits: order.discount_amount_minor_units,
+      isTest: order.is_test,
     });
   }
 
@@ -205,6 +220,7 @@ export async function handlePaystackRefundOrDispute(params: {
       eventType: params.eventType,
       status: "order_not_found",
       rawPayload: params.rawPayload,
+      isTest: false,
     });
     return { outcome: "order_not_found" };
   }
@@ -216,6 +232,7 @@ export async function handlePaystackRefundOrDispute(params: {
     eventType: params.eventType,
     status: null,
     rawPayload: params.rawPayload,
+    isTest: order.is_test,
   });
 
   if (!inserted) {
@@ -266,6 +283,7 @@ export async function handleKorapayRefund(params: {
       eventType: params.eventType,
       status: "order_not_found",
       rawPayload: params.rawPayload,
+      isTest: false,
     });
     return { outcome: "order_not_found" };
   }
@@ -277,6 +295,7 @@ export async function handleKorapayRefund(params: {
     eventType: params.eventType,
     status: null,
     rawPayload: params.rawPayload,
+    isTest: order.is_test,
   });
 
   if (!inserted) {
@@ -374,6 +393,7 @@ export async function handleKorapayChargebackLoss(params: {
       eventType: params.eventType,
       status: "order_not_found",
       rawPayload: params.rawPayload,
+      isTest: false,
     });
     return { outcome: "order_not_found" };
   }
@@ -385,6 +405,7 @@ export async function handleKorapayChargebackLoss(params: {
     eventType: params.eventType,
     status: null,
     rawPayload: params.rawPayload,
+    isTest: order.is_test,
   });
 
   if (!inserted) {
@@ -408,8 +429,33 @@ export async function handleKorapayChargebackLoss(params: {
   return { outcome: "revoked" };
 }
 
-async function grantCourseAccess(userId: string, orderId: string) {
+/**
+ * Grants access from a verified order. Before writing anything, cross-checks
+ * the order's own is_test against the user's CURRENT profiles.is_test —
+ * refusing on any mismatch — so a course_access row can never authorize a
+ * user whose own is_test flag disagrees with it. This is what keeps a
+ * production user from ever being authorized by a test order (or the
+ * reverse) even if some future bug let an inconsistent order slip through
+ * checkout-action.ts. Returns false (and grants nothing) on that mismatch;
+ * true once course_access is written.
+ */
+async function grantCourseAccess(userId: string, orderId: string, isTest: boolean): Promise<boolean> {
   const admin = createAdminClient();
+
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("is_test")
+    .eq("id", userId)
+    .maybeSingle<Pick<ProfileRow, "is_test">>();
+
+  if (!profile || profile.is_test !== isTest) {
+    console.error(
+      "[access-activation] refusing to grant course access: order.is_test does not match the user's current profiles.is_test",
+      { userId, orderId, orderIsTest: isTest, profileIsTest: profile?.is_test ?? null }
+    );
+    return false;
+  }
+
   await admin
     .from("course_access")
     .upsert(
@@ -420,14 +466,44 @@ async function grantCourseAccess(userId: string, orderId: string) {
         order_id: orderId,
         granted_at: new Date().toISOString(),
         revoked_at: null,
+        is_test: isTest,
       },
       { onConflict: "user_id,course_id" }
     );
+  return true;
 }
 
-/** Manual grant by an admin (e.g. a payment handled outside Paystack) — not tied to any order. */
+/**
+ * Manual grant by an admin (e.g. a payment handled outside Paystack) — not
+ * tied to any order. This is the general Students-page grant path
+ * (lib/admin/actions.ts's grantAccessAction), never the Test Mode one — it
+ * refuses outright on a test account (findStudents() already excludes test
+ * accounts from that page's search, so this is a second, independent guard
+ * against a crafted request bypassing that): without it, an is_test: false
+ * course_access row could be written for a test profile, which would then
+ * wrongly count toward the Dashboard's real "Active course access" number
+ * even though checkCourseAccessInternal()'s own is_test cross-check
+ * (lib/access.ts) would still correctly keep that test account from actually
+ * being authorized. Use /admin/test-mode's resetTestAccountAction to
+ * manage a test account's access instead.
+ */
 export async function grantCourseAccessManually(userId: string, adminId: string, notes: string) {
   const admin = createAdminClient();
+
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("is_test")
+    .eq("id", userId)
+    .maybeSingle<Pick<ProfileRow, "is_test">>();
+
+  if (profile?.is_test) {
+    console.error(
+      "[access-activation] refusing manual course_access grant: target is a test account — use /admin/test-mode instead",
+      { userId }
+    );
+    return;
+  }
+
   await admin
     .from("course_access")
     .upsert(
@@ -439,6 +515,7 @@ export async function grantCourseAccessManually(userId: string, adminId: string,
         revoked_at: null,
         granted_by: adminId,
         notes,
+        is_test: false,
       },
       { onConflict: "user_id,course_id" }
     );
@@ -459,6 +536,21 @@ export async function revokeCourseAccess(userId: string, reason: string) {
 
 export async function restoreCourseAccess(userId: string, grantedByAdminId: string) {
   const admin = createAdminClient();
+
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("is_test")
+    .eq("id", userId)
+    .maybeSingle<Pick<ProfileRow, "is_test">>();
+
+  if (profile?.is_test) {
+    console.error(
+      "[access-activation] refusing course_access restore: target is a test account — use /admin/test-mode instead",
+      { userId }
+    );
+    return;
+  }
+
   await admin
     .from("course_access")
     .upsert(
@@ -470,13 +562,23 @@ export async function restoreCourseAccess(userId: string, grantedByAdminId: stri
         revoked_at: null,
         granted_by: grantedByAdminId,
         notes: "Restored by admin",
+        is_test: false,
       },
       { onConflict: "user_id,course_id" }
     );
 }
 
-function mapFailureStatus(paystackStatus: string): OrderStatus {
-  if (paystackStatus === "abandoned") return "cancelled";
+function mapFailureStatus(providerStatus: string): OrderStatus {
+  // "abandoned" is Paystack's own status string for an abandoned checkout.
+  // "cancelled" is never produced by Paystack or Korapay — it's only ever
+  // returned by lib/payments/test-provider.ts's verifyCharge(), when a test
+  // account clicks "Simulate cancelled checkout" (as distinct from "Simulate
+  // failed payment", which reports "failed" — see test-provider.ts). Without
+  // this, a simulated cancellation would collapse into the same
+  // OrderStatus "failed" as a simulated decline, losing the distinction the
+  // three separate buttons on app/get-started/test-checkout exist to
+  // preserve.
+  if (providerStatus === "abandoned" || providerStatus === "cancelled") return "cancelled";
   return "failed";
 }
 
@@ -489,6 +591,10 @@ async function logPaymentEvent(
     eventType: string;
     status: string | null;
     rawPayload: unknown;
+    // Copied by every call site from the order this event is for (false when
+    // no order was found at all) — lets this append-only log be filtered
+    // without a join, matching every other is_test column.
+    isTest: boolean;
   }
 ): Promise<boolean> {
   const { error } = await admin.from("payment_events").insert({
@@ -498,6 +604,7 @@ async function logPaymentEvent(
     event_type: event.eventType,
     status: event.status,
     raw_payload: event.rawPayload as Record<string, unknown>,
+    is_test: event.isTest,
   });
   // A unique-violation on dedupe_key means this exact event was already
   // recorded — that's the expected, successful "duplicate, skip" path, not

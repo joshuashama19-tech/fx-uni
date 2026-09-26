@@ -172,6 +172,14 @@ export async function validateDiscountCode(
  * only increments usage_count if that insert actually happened) — safe to
  * call more than once for the same order (a retried webhook, or both the
  * webhook and the return-page verify path reaching the grant step).
+ *
+ * `isTest` (copied by the caller from the order's own is_test — see
+ * supabase/migrations/0013_test_mode.sql) is passed straight through to
+ * apply_discount_redemption() as p_is_test. A test account's redemption is
+ * still recorded (so its own max_uses_per_customer limit still applies to
+ * it), but the Postgres function never increments discount_codes.usage_count
+ * when this is true — the one aggregate figure the admin Discount Codes page
+ * displays can never be moved by a Test Mode transaction.
  */
 export async function redeemDiscountCode(params: {
   discountCodeId: string;
@@ -179,6 +187,7 @@ export async function redeemDiscountCode(params: {
   orderId: string;
   code: string;
   discountAmountMinorUnits: number;
+  isTest: boolean;
 }): Promise<void> {
   const admin = createAdminClient();
   const { error } = await admin.rpc("apply_discount_redemption", {
@@ -187,6 +196,7 @@ export async function redeemDiscountCode(params: {
     p_order_id: params.orderId,
     p_code: params.code,
     p_discount_amount: params.discountAmountMinorUnits,
+    p_is_test: params.isTest,
   });
 
   if (error) {

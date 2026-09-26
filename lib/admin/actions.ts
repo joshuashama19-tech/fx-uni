@@ -57,6 +57,11 @@ export async function findStudents(query: string): Promise<StudentRow[]> {
   const { data: profiles } = await admin
     .from("profiles")
     .select("id, email, full_name")
+    // Test accounts (supabase/migrations/0013_test_mode.sql) are
+    // deliberately excluded from this search — this page grants/revokes
+    // REAL course access, and a test account should only ever be managed
+    // from the isolated /admin/test-mode area (lib/admin/test-mode-actions.ts).
+    .eq("is_test", false)
     .ilike("email", `%${query}%`)
     .order("created_at", { ascending: false })
     .limit(25);

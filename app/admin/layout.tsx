@@ -20,6 +20,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     { href: "/admin/pricing", label: "Pricing" },
     { href: "/admin/discount-codes", label: "Discount Codes" },
     { href: "/admin/payment-provider", label: "Payment Provider" },
+    { href: "/admin/test-mode", label: "Test Mode" },
   ];
 
   // Same signOutAction() used by /learn and /account (lib/auth/actions.ts) —
