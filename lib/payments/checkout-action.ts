@@ -221,33 +221,17 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
         cancelUrl: `${getSiteUrl()}/get-started`,
         ipnCallbackUrl: `${getSiteUrl()}/api/webhooks/nowpayments`,
       });
-      // Records the invoice's own id as the best-known NOWPayments
-      // reference for this order so far — via the RPC, not a direct table
-      // write, because this Server Action runs as the authenticated user
-      // and orders has no RLS UPDATE policy for that role at all (see
-      // supabase/migrations/0014_nowpayments.sql's own header comment).
-      // There is no real *payment* yet at invoice-creation time (see
-      // lib/payments/nowpayments.ts's verifyNowPaymentsPayment() doc
-      // comment) — the webhook route overwrites this with the true
-      // payment_id the moment NOWPayments' first IPN reports one, before
-      // any verification happens.
-      const { error: referenceError } = await supabase.rpc("set_order_nowpayments_reference", {
-        p_order_id: insertedOrder.id,
-        p_payment_id: result.invoiceId,
-        p_pay_currency: null,
-      });
-      if (referenceError) {
-        // Never block the checkout itself on this — the invoice was
-        // already created and result.checkoutUrl is real and already
-        // charging in the amount the student was quoted; losing this
-        // placeholder id only means verifyNowPaymentsPayment() reports
-        // "waiting" (never a false grant or a false failure) until the
-        // webhook's own recordNowPaymentsReference() call fills in the real
-        // payment_id instead. Logged so a support investigation into a
-        // stuck order has a trail, same convention as every other
-        // non-fatal write failure in this file.
-        console.error("[checkout] set_order_nowpayments_reference failed", reference, referenceError);
-      }
+      // orders.nowpayments_payment_id is deliberately left NULL here. The
+      // invoice's own id (result.invoiceId) is a completely different
+      // identifier from a real NOWPayments payment_id — see
+      // lib/payments/nowpayments.ts's file header and initializePayment()
+      // doc comments — and must never be written into that column, even
+      // temporarily. It is set exactly once, by
+      // app/api/webhooks/nowpayments/route.ts's recordNowPaymentsReference()
+      // call, the first time a signed IPN reports a real payment_id for
+      // this order. Until then, verifyNowPaymentsPayment() sees NULL and
+      // reports the ordinary, non-terminal "waiting" status — never an
+      // error, never a false grant.
       checkoutRedirectTarget = result.checkoutUrl;
     } else {
       const result = await initializeTransaction({

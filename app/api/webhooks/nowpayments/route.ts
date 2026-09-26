@@ -78,8 +78,11 @@ export async function POST(request: NextRequest) {
   try {
     // Record the real payment_id the moment this IPN reports one — before
     // any verification happens — so verifyNowPaymentsPayment()'s later GET
-    // /v1/payment/{id} call always has a real id to query, not just the
-    // invoice-creation-time placeholder checkout-action.ts stored. See
+    // /v1/payment/{id} call always has a real id to query. This is the
+    // first time orders.nowpayments_payment_id is ever written for this
+    // order: checkout-action.ts deliberately leaves it NULL at
+    // invoice-creation time (the invoice's own id is a different
+    // identifier and is never stored there). See
     // lib/payments/nowpayments.ts's own doc comments for the full
     // invoice-vs-payment-id reasoning.
     if (event.payment_id) {

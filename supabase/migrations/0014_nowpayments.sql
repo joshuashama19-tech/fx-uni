@@ -29,22 +29,21 @@
 --     (production, preview) pick this up with zero behavior change until an
 --     admin explicitly opts in from /admin/payment-provider.
 --     payment_settings.active_provider's own check constraint is untouched.
---   - set_order_nowpayments_reference() is a narrowly-scoped SECURITY
---     DEFINER RPC that lets lib/payments/checkout-action.ts (which runs as
---     the authenticated user, deliberately never the service-role client —
---     see that file's own header comment) record the NOWPayments payment id
---     onto the order it just created. This exists because orders has no
---     RLS UPDATE policy for the authenticated role at all (only
---     orders_select_own and orders_insert_own_pending — see
---     0001_init.sql/0004_performance_hardening.sql), so a direct table
---     update from that action would simply do nothing. The function is
---     scoped tight enough that it can never touch any row other than the
---     caller's own, freshly-created, still-pending, nowpayments order.
+--   - orders.nowpayments_payment_id is deliberately left NULL by
+--     lib/payments/checkout-action.ts when it creates the order (it only
+--     ever knows the NOWPayments invoice's own id at that point, which is a
+--     different identifier from a real payment id — see
+--     lib/payments/nowpayments.ts's file header comment). It is written
+--     exactly once, by lib/payments/nowpayments.ts's recordNowPaymentsReference(),
+--     called from app/api/webhooks/nowpayments/route.ts using the
+--     service-role/admin client (which already bypasses RLS) the first time
+--     a signed IPN reports a real payment_id for this order — so no RPC or
+--     SECURITY DEFINER function is needed for this write.
 --
--- Purely additive: new nullable/safe-defaulted columns, one new function,
--- two widened CHECK constraints. No existing row's meaning changes, no
--- destructive operation, no change to payment_settings.active_provider's
--- values or constraint, no change to any other provider's behavior.
+-- Purely additive: new nullable/safe-defaulted columns and two widened
+-- CHECK constraints. No existing row's meaning changes, no destructive
+-- operation, no change to payment_settings.active_provider's values or
+-- constraint, no change to any other provider's behavior.
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -74,7 +73,7 @@ alter table public.orders
   add column if not exists pay_currency text;
 
 comment on column public.orders.nowpayments_payment_id is
-  'NOWPayments'' own payment id for this order''s crypto checkout, set once by set_order_nowpayments_reference() right after lib/payments/nowpayments.ts''s initializePayment() creates the hosted invoice. Null for every order that isn''t payment_provider = ''nowpayments''. This is what lib/payments/nowpayments.ts''s verifyNowPaymentsPayment() looks up (by this order''s own paystack_reference) to know which NOWPayments payment to re-query — the internal order/reference stays the source of truth for matching, never this id in the other direction.';
+  'NOWPayments'' own payment id for this order''s crypto checkout. NULL from order creation (lib/payments/checkout-action.ts never writes the invoice''s own id here — that is a different identifier) until NOWPayments'' first signed IPN for this order reports a real payment_id, at which point lib/payments/nowpayments.ts''s recordNowPaymentsReference() (called from app/api/webhooks/nowpayments/route.ts) sets it. Null for every order that isn''t payment_provider = ''nowpayments'', and null here too until that IPN arrives. This is what lib/payments/nowpayments.ts''s verifyNowPaymentsPayment() looks up (by this order''s own paystack_reference) to know which NOWPayments payment to re-query — the internal order/reference stays the source of truth for matching, never this id in the other direction.';
 comment on column public.orders.pay_currency is
   'The crypto asset actually used for this order''s NOWPayments checkout (e.g. ''usdttrc20''), recorded for support/audit/receipt display only. Null for every other provider, and null here too until NOWPayments reports it (the coin choice happens on NOWPayments'' own hosted invoice page, not in this app — see lib/payments/nowpayments.ts).';
 
@@ -93,47 +92,18 @@ comment on column public.payment_settings.crypto_enabled is
 comment on column public.payment_settings.default_checkout_method is
   '''local'' or ''crypto'' — which payment-method card is preselected on /get-started. Resolved together with crypto_enabled by lib/payments/provider.ts''s resolveCheckoutMethodSettings(): if this is ''crypto'' but crypto_enabled is false, the EFFECTIVE default silently falls back to ''local'' — a broken/disabled crypto option is never preselected or shown. Defaults to ''local''.';
 
--- ---------------------------------------------------------------------------
--- set_order_nowpayments_reference(): the one way checkout-action.ts (running
--- as the authenticated user, never the admin client) can record NOWPayments'
--- payment id onto the order it just created — see this file's own header
--- comment for why a direct table UPDATE from that action isn't possible at
--- all today. SECURITY DEFINER so it runs with the function owner's
--- privileges (bypassing the missing UPDATE policy on orders), but scoped by
--- its own WHERE clause — not by RLS — to exactly one row: the row matching
--- BOTH the given order id AND auth.uid() AND status = 'pending' AND
--- payment_provider = 'nowpayments'. A caller can never use this to touch any
--- order other than their own freshly-created, still-pending, nowpayments
--- order, regardless of what p_order_id is set to.
--- ---------------------------------------------------------------------------
-create or replace function public.set_order_nowpayments_reference(
-  p_order_id uuid,
-  p_payment_id text,
-  p_pay_currency text
-)
-returns boolean
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_row_count integer;
-begin
-  update public.orders
-  set nowpayments_payment_id = p_payment_id,
-      pay_currency = p_pay_currency
-  where id = p_order_id
-    and user_id = auth.uid()
-    and status = 'pending'
-    and payment_provider = 'nowpayments';
-
-  get diagnostics v_row_count = row_count;
-  return v_row_count > 0;
-end;
-$$;
-
-comment on function public.set_order_nowpayments_reference is
-  'Called once, from lib/payments/checkout-action.ts, immediately after initializePayment() creates the NOWPayments hosted invoice for a new order. See this file''s own header comment for why this RPC exists instead of a direct table UPDATE. Returns false (writing nothing) if p_order_id does not match a pending, nowpayments order owned by the calling user — never throws, so a caller can''t learn anything about another user''s orders from the response shape.';
-
-revoke all on function public.set_order_nowpayments_reference(uuid, text, text) from public;
-grant execute on function public.set_order_nowpayments_reference(uuid, text, text) to authenticated;
+-- Note: no RPC/SECURITY DEFINER function is defined here for writing
+-- orders.nowpayments_payment_id. An earlier draft of this migration
+-- included set_order_nowpayments_reference(), a SECURITY DEFINER function
+-- for lib/payments/checkout-action.ts (running as the authenticated user)
+-- to record the NOWPayments invoice's own id onto the order it had just
+-- created, as a placeholder until the real payment_id arrived. That
+-- placeholder architecture has been removed: checkout-action.ts no longer
+-- writes anything onto nowpayments_payment_id at order-creation time (it
+-- stays NULL, which lib/payments/nowpayments.ts's verifyNowPaymentsPayment()
+-- already treats as a normal, non-terminal "waiting" state). The column is
+-- written exactly once, by recordNowPaymentsReference() in
+-- lib/payments/nowpayments.ts, called from
+-- app/api/webhooks/nowpayments/route.ts using the service-role/admin client
+-- — which already bypasses RLS — the first time a signed IPN reports a real
+-- payment_id. No RPC is needed for that write, so none is defined.

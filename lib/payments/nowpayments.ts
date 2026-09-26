@@ -148,20 +148,23 @@ export const NOWPAYMENTS_NONTERMINAL_STATUSES = new Set(["waiting", "confirming"
  * the other direction.
  *
  * A wrinkle specific to the Invoice API: at invoice-creation time there is
- * no payment yet — only an invoice — so checkout-action.ts records the
- * invoice's own id as a placeholder (see set_order_nowpayments_reference()
- * in supabase/migrations/0014_nowpayments.sql), which is not a valid
- * payment_id to query GET /v1/payment/{id} with. orders.nowpayments_payment_id
- * only becomes a real, queryable payment id once NOWPayments' first IPN for
- * this order reports one — app/api/webhooks/nowpayments/route.ts overwrites
- * it via recordNowPaymentsReference() (below), using the admin client,
- * before any verification happens. If this function is called (e.g. the
- * student's browser returns from the hosted invoice page) before that has
- * happened yet, either the id is still the placeholder invoice id (the GET
- * below 404s) or genuinely unset — both are reported as the neutral,
- * non-terminal "waiting" status rather than an error, since the practical
- * meaning is identical: NOWPayments hasn't matched a payment to this
- * invoice yet.
+ * no payment yet — only an invoice — so the invoice's own id (returned by
+ * initializePayment() above) is a completely different identifier from a
+ * real NOWPayments payment_id and is never written anywhere onto the order.
+ * checkout-action.ts leaves orders.nowpayments_payment_id NULL when it
+ * creates the order; that column only ever gets a value once NOWPayments'
+ * first signed IPN for this order reports a real payment_id —
+ * app/api/webhooks/nowpayments/route.ts writes it via
+ * recordNowPaymentsReference() (below), using the admin client, before any
+ * verification happens. If this function is called (e.g. the student's
+ * browser returns from the hosted invoice page) before that IPN has arrived
+ * yet, nowpayments_payment_id is simply still NULL — reported as the
+ * neutral, non-terminal "waiting" status rather than an error, since the
+ * practical meaning is identical: NOWPayments hasn't matched a payment to
+ * this invoice yet. The GET /v1/payment/{id} 404 branch below is kept purely
+ * as a defensive fallback (a stored id that no longer resolves) — it is not
+ * expected to be hit in normal operation, since the only id ever written
+ * there is a real, IPN-reported payment_id.
  * amountMinorUnits/currency compare against the FIAT side of NOWPayments'
  * response (price_amount/price_currency — what the student was quoted),
  * never the crypto-denominated pay_amount/pay_currency, which is a
@@ -176,8 +179,9 @@ export async function verifyNowPaymentsPayment(reference: string): Promise<Gener
     .maybeSingle<Pick<OrderRow, "nowpayments_payment_id" | "amount_minor_units" | "currency">>();
 
   if (!order?.nowpayments_payment_id) {
-    // No payment matched to this invoice yet (see doc comment above) — not
-    // an error, just not started/confirmed on NOWPayments' side yet.
+    // Still NULL — no signed IPN has reported a real payment_id for this
+    // order yet (see doc comment above). Not an error, just not
+    // started/confirmed on NOWPayments' side yet.
     return {
       success: false,
       status: "waiting",
@@ -193,9 +197,9 @@ export async function verifyNowPaymentsPayment(reference: string): Promise<Gener
   });
 
   if (res.status === 404) {
-    // The stored id doesn't (yet) resolve to a real payment — same
-    // "nothing to verify yet" case as above, most likely because we only
-    // ever saw the invoice's own id and no payment has actually started.
+    // Defensive fallback only (see doc comment above) — the stored id
+    // doesn't resolve to a real payment. Treated the same as "nothing to
+    // verify yet" rather than an error.
     return {
       success: false,
       status: "waiting",
@@ -260,21 +264,22 @@ export function verifyIpnSignature(rawBody: string, signatureHeader: string | nu
 }
 
 /**
- * Overwrites NOWPayments' own payment id (and, once known, the crypto asset
+ * Writes NOWPayments' own payment id (and, once known, the crypto asset
  * used) onto this order — called from app/api/webhooks/nowpayments/route.ts,
- * using the admin client, the first time an IPN reports a real payment_id
- * for this order. lib/payments/checkout-action.ts already records the
- * invoice's own id right after creation (via the set_order_nowpayments_reference
- * RPC — see supabase/migrations/0014_nowpayments.sql — since that action
- * runs as the authenticated user, never the admin client), but there is no
- * actual *payment* yet at that point (see verifyNowPaymentsPayment()'s doc
- * comment above), so this function's job is specifically to replace that
- * placeholder with the real, queryable payment_id the moment one exists —
- * before any verification happens, so verifyNowPaymentsPayment()'s GET
- * /v1/payment/{id} call always has a real id to query from then on. Never
- * called from anything reachable by the browser; the admin client already
- * bypasses RLS, so no RPC/SECURITY DEFINER function is needed for this
- * particular write.
+ * using the admin client, the first time a signed IPN reports a real
+ * payment_id for this order. This is the ONLY place orders.nowpayments_payment_id
+ * is ever written: checkout-action.ts deliberately leaves it NULL when it
+ * creates the order (the invoice's own id, returned by initializePayment()
+ * above, is a different identifier and is never stored there — see that
+ * function's own doc comment). Before this first IPN arrives,
+ * verifyNowPaymentsPayment() simply sees NULL and reports the normal
+ * non-terminal "waiting" status (see its own doc comment above); this
+ * function is what transitions the column from NULL to a real, queryable
+ * payment_id, before any verification happens, so verifyNowPaymentsPayment()'s
+ * GET /v1/payment/{id} call always has a real id to query from then on.
+ * Never called from anything reachable by the browser; the admin client
+ * already bypasses RLS, so no RPC/SECURITY DEFINER function is needed for
+ * this particular write.
  *
  * Throws — rather than silently ignoring a failed or no-op write — on
  * either a Supabase error OR on the update matching zero rows. This
@@ -282,11 +287,10 @@ export function verifyIpnSignature(rawBody: string, signatureHeader: string | nu
  * (app/api/webhooks/nowpayments/route.ts) calls this BEFORE dispatching to
  * confirmSuccessfulPayment()/handleNowPaymentsRefund(): if the real
  * payment_id from this IPN never actually gets persisted, a later
- * verifyNowPaymentsPayment() call would keep querying the stale
- * invoice-id placeholder (or nothing at all) and could never re-discover
- * the correct payment to verify against. Letting that failure pass
- * silently would let the webhook route go on to acknowledge (200) an IPN
- * whose payment reference was never actually stored — throwing here
+ * verifyNowPaymentsPayment() call would keep seeing NULL and could never
+ * re-discover the correct payment to verify against. Letting that failure
+ * pass silently would let the webhook route go on to acknowledge (200) an
+ * IPN whose payment reference was never actually stored — throwing here
  * instead propagates up to that route's own catch block, which returns
  * 500 so NOWPayments retries the same IPN rather than the event being
  * lost. A zero-row match (order not found for this reference, or found
