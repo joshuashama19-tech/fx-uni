@@ -6,7 +6,12 @@ import { createClient } from "@/lib/supabase/server";
 import { checkCourseAccess } from "@/lib/access";
 import { signInAction } from "@/lib/auth/actions";
 import { initializeCheckoutAction, applyDiscountCodeAction } from "@/lib/payments/checkout-action";
-import { resolvePaymentProvider, type PaymentProvider } from "@/lib/payments/provider";
+import {
+  resolvePaymentProvider,
+  resolveCheckoutMethodSettings,
+  type PaymentProvider,
+  type CheckoutMethod,
+} from "@/lib/payments/provider";
 import { siteConfig } from "@/lib/course-data";
 import { getSiteContent } from "@/lib/content";
 import { resolvePricing, formatMinorUnits } from "@/lib/pricing";
@@ -67,13 +72,34 @@ export default async function GetStartedPage({
   // otherwise this copy could show "Paystack"/"Korapay" right before the
   // student is actually sent to the in-app simulated checkout.
   let paymentProvider: PaymentProvider = "paystack";
+  // Whether Crypto Payment is offered at all, and which method is
+  // preselected — a genuinely separate axis from paymentProvider above
+  // (which still only ever means the LOCAL rail). Left at these safe
+  // defaults (crypto not offered, local preselected) for a test account and
+  // for a signed-out visitor, exactly mirroring how paymentProvider itself
+  // is only ever resolved for a signed-in, non-test user — see
+  // lib/payments/checkout-action.ts's identical isTestAccount short-circuit.
+  let cryptoEnabled = false;
+  let effectiveDefaultMethod: CheckoutMethod = "local";
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("is_test")
       .eq("id", user.id)
       .maybeSingle<Pick<ProfileRow, "is_test">>();
-    paymentProvider = profile?.is_test ? "test" : await resolvePaymentProvider();
+    const isTestAccount = profile?.is_test === true;
+    paymentProvider = isTestAccount ? "test" : await resolvePaymentProvider();
+    if (!isTestAccount) {
+      const checkoutSettings = await resolveCheckoutMethodSettings();
+      cryptoEnabled = checkoutSettings.cryptoEnabled;
+      // The required fallback: a default of "crypto" while crypto is
+      // disabled must never preselect (or expose) a broken option — it
+      // silently becomes "local" instead. See
+      // lib/payments/provider.ts's resolveCheckoutMethodSettings() doc
+      // comment for why this one-line rule lives at each call site rather
+      // than inside that function.
+      effectiveDefaultMethod = checkoutSettings.defaultMethod === "crypto" && checkoutSettings.cryptoEnabled ? "crypto" : "local";
+    }
   }
   const next = params.next && params.next.startsWith("/") && !params.next.startsWith("//") ? params.next : "/learn";
 
@@ -147,6 +173,8 @@ export default async function GetStartedPage({
               billingNote={content.pricing_billing_note}
               discountPreview={discountPreview}
               paymentProvider={paymentProvider}
+              cryptoEnabled={cryptoEnabled}
+              effectiveDefaultMethod={effectiveDefaultMethod}
             />
           ) : (
             <AuthPanel mode={params.mode === "login" ? "login" : "signup"} next={next} />
@@ -202,6 +230,7 @@ const PAYMENT_PROVIDER_DISPLAY_NAME: Record<PaymentProvider, string> = {
   paystack: "Paystack",
   korapay: "Korapay",
   test: "Test Mode (simulated, no real payment)",
+  nowpayments: "NOWPayments",
 };
 
 function CheckoutPanel({
@@ -210,12 +239,16 @@ function CheckoutPanel({
   billingNote,
   discountPreview,
   paymentProvider,
+  cryptoEnabled,
+  effectiveDefaultMethod,
 }: {
   email: string;
   pricing: Awaited<ReturnType<typeof resolvePricing>>;
   billingNote: string;
   discountPreview: DiscountPreview | null;
   paymentProvider: PaymentProvider;
+  cryptoEnabled: boolean;
+  effectiveDefaultMethod: CheckoutMethod;
 }) {
   return (
     <div>
@@ -292,12 +325,58 @@ function CheckoutPanel({
       )}
 
       {/* Which provider handles payment, directly above the one main
-          action — the single button that continues to payment. */}
-      <p className="mb-2 text-center text-xs text-ink-500">
-        Secure payment via {PAYMENT_PROVIDER_DISPLAY_NAME[paymentProvider]}.
-      </p>
+          action — the single button that continues to payment. A test
+          account never sees a payment-method choice at all — it always
+          goes straight to the in-app simulated checkout, exactly as before
+          this feature existed. */}
+      {paymentProvider === "test" ? (
+        <p className="mb-2 text-center text-xs text-ink-500">
+          Secure payment via {PAYMENT_PROVIDER_DISPLAY_NAME[paymentProvider]}.
+        </p>
+      ) : null}
       <form action={initializeCheckoutAction}>
         {discountPreview ? <input type="hidden" name="discount_code" value={discountPreview.code} /> : null}
+
+        {paymentProvider !== "test" ? (
+          <div className="mb-4 space-y-2">
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-ink-200 p-3.5 has-[:checked]:border-brand-600 has-[:checked]:bg-brand-50">
+              <input
+                type="radio"
+                name="payment_method"
+                value="local"
+                defaultChecked={effectiveDefaultMethod === "local"}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block text-sm font-semibold text-ink-900">Local Payment</span>
+                <span className="block text-xs text-ink-500">Powered by {PAYMENT_PROVIDER_DISPLAY_NAME[paymentProvider]}</span>
+              </span>
+            </label>
+
+            {/* Only ever rendered when the admin has crypto turned on for
+                this environment — never shown disabled, never a broken
+                option a student could pick. See
+                lib/payments/provider.ts's resolveCheckoutMethodSettings(). */}
+            {cryptoEnabled ? (
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-ink-200 p-3.5 has-[:checked]:border-brand-600 has-[:checked]:bg-brand-50">
+                <input
+                  type="radio"
+                  name="payment_method"
+                  value="crypto"
+                  defaultChecked={effectiveDefaultMethod === "crypto"}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-ink-900">Pay with Crypto</span>
+                  <span className="block text-xs text-ink-500">
+                    USDT, USDC &amp; supported cryptocurrencies · Powered by NOWPayments · International payment
+                  </span>
+                </span>
+              </label>
+            ) : null}
+          </div>
+        ) : null}
+
         <button
           type="submit"
           className="group inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand-600 px-6 py-3.5 text-base font-semibold text-white shadow-glow transition-all duration-200 hover:-translate-y-0.5 hover:bg-brand-700 active:translate-y-0"

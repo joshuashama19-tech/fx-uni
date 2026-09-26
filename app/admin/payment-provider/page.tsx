@@ -2,19 +2,24 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/access";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { updatePaymentProviderAction } from "@/lib/admin/payment-provider-actions";
-import { resolvePaymentEnvironment } from "@/lib/payments/provider";
+import { updatePaymentProviderAction, updateCheckoutMethodSettingsAction } from "@/lib/admin/payment-provider-actions";
+import { resolvePaymentEnvironment, resolveCheckoutMethodSettings } from "@/lib/payments/provider";
 import type { PaymentEnvironment, PaymentSettingsRow } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Admin — Payment Provider" };
 
 // Deliberately narrower than the full PaymentProvider union (which also
-// includes 'test' as of supabase/migrations/0013_test_mode.sql) — this page
-// only ever shows/switches Production's or Preview's REAL active provider;
-// 'test' is never reachable here at all (see lib/payments/provider.ts's
-// resolvePaymentProvider(), which never returns it, and
-// lib/admin/payment-provider-actions.ts's updatePaymentProviderAction, which
-// refuses any value other than 'paystack'/'korapay').
+// includes 'test' as of supabase/migrations/0013_test_mode.sql, and
+// 'nowpayments' as of 0014_nowpayments.sql) — this page only ever
+// shows/switches Production's or Preview's REAL LOCAL active provider;
+// neither 'test' nor 'nowpayments' is ever reachable here (see
+// lib/payments/provider.ts's resolvePaymentProvider(), which never returns
+// either, and lib/admin/payment-provider-actions.ts's
+// updatePaymentProviderAction, which refuses any value other than
+// 'paystack'/'korapay'). Crypto is a separate setting, shown in its own
+// section below via updateCheckoutMethodSettingsAction — this Record and
+// that action deliberately stay this narrow even though neither check is
+// type-driven (TypeScript won't flag either if it were ever wrong).
 const PROVIDER_LABEL: Record<"paystack" | "korapay", string> = {
   paystack: "Paystack",
   korapay: "Korapay",
@@ -65,6 +70,7 @@ export default async function AdminPaymentProviderPage({
   const params = await searchParams;
   const environment = resolvePaymentEnvironment();
   const activeProvider = await getActiveProvider(environment);
+  const checkoutMethodSettings = await resolveCheckoutMethodSettings();
   const environmentLabel = ENVIRONMENT_LABEL[environment];
 
   const pendingConfirm: "paystack" | "korapay" | null =
@@ -143,6 +149,76 @@ export default async function AdminPaymentProviderPage({
             </p>
           </div>
         )}
+
+        {/* A separate axis from the local-provider switcher above — see
+            supabase/migrations/0014_nowpayments.sql and
+            lib/payments/provider.ts's resolveCheckoutMethodSettings(). This
+            never changes activeProvider, and switching Paystack/Korapay
+            above never changes these two settings. */}
+        <div className="mt-8">
+          <h2 className="text-lg font-semibold text-ink-950">Crypto payments</h2>
+          <p className="mt-1 text-sm text-ink-500">
+            Offers NOWPayments as a second checkout option ("Pay with Crypto") alongside{" "}
+            {environmentLabel}&apos;s local provider above. Independent of the local-provider setting — turning
+            crypto on or off never changes which of Paystack/Korapay is active, and vice versa.
+          </p>
+
+          <form action={updateCheckoutMethodSettingsAction} className="mt-4 rounded-xl border border-ink-100 bg-white p-5">
+            <label className="flex items-center justify-between gap-4">
+              <span>
+                <span className="block text-sm font-medium text-ink-900">Crypto Payments</span>
+                <span className="block text-xs text-ink-500">
+                  {checkoutMethodSettings.cryptoEnabled ? "On — shown to students at checkout" : "Off — never shown to students"}
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                name="crypto_enabled"
+                defaultChecked={checkoutMethodSettings.cryptoEnabled}
+                className="h-5 w-5 accent-brand-600"
+              />
+            </label>
+
+            <div className="mt-5 border-t border-ink-100 pt-5">
+              <p className="text-sm font-medium text-ink-900">Default checkout method</p>
+              <p className="mt-1 text-xs text-ink-500">
+                Which option is preselected on the checkout page. If Crypto is chosen here but Crypto Payments is
+                off, students automatically get the local provider instead — a disabled option is never preselected
+                or shown.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <label className="flex items-center gap-2 rounded-full border border-ink-200 px-4 py-2 text-sm font-semibold text-ink-700">
+                  <input
+                    type="radio"
+                    name="default_checkout_method"
+                    value="local"
+                    defaultChecked={checkoutMethodSettings.defaultMethod === "local"}
+                  />
+                  Local Payment
+                </label>
+                <label className="flex items-center gap-2 rounded-full border border-ink-200 px-4 py-2 text-sm font-semibold text-ink-700">
+                  <input
+                    type="radio"
+                    name="default_checkout_method"
+                    value="crypto"
+                    defaultChecked={checkoutMethodSettings.defaultMethod === "crypto"}
+                  />
+                  Crypto
+                  {!checkoutMethodSettings.cryptoEnabled ? (
+                    <span className="text-xs font-normal text-ink-400">(enable crypto payments above first)</span>
+                  ) : null}
+                </label>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="mt-5 rounded-full bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+            >
+              Save crypto settings
+            </button>
+          </form>
+        </div>
       </div>
     </main>
   );

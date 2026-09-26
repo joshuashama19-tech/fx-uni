@@ -1,8 +1,8 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { PaymentEnvironment, PaymentProvider, PaymentSettingsRow } from "@/lib/types";
+import type { CheckoutMethod, PaymentEnvironment, PaymentProvider, PaymentSettingsRow } from "@/lib/types";
 
-export type { PaymentProvider, PaymentEnvironment };
+export type { PaymentProvider, PaymentEnvironment, CheckoutMethod };
 
 // Paystack stays the safe default provider for every new checkout, in
 // every environment: the schema default on payment_settings.active_provider
@@ -131,5 +131,69 @@ export async function resolvePaymentProvider(): Promise<PaymentProvider> {
     return DEFAULT_PAYMENT_PROVIDER;
   } catch {
     return DEFAULT_PAYMENT_PROVIDER;
+  }
+}
+
+export interface CheckoutMethodSettings {
+  cryptoEnabled: boolean;
+  defaultMethod: CheckoutMethod;
+}
+
+// Crypto off, local by default — the same safe value payment_settings'
+// own column defaults to (0014_nowpayments.sql), so an unreadable/missing
+// row behaves identically to a freshly-seeded one that no admin has touched
+// yet: crypto is never accidentally exposed by an outage or a missing row.
+const DEFAULT_CHECKOUT_METHOD_SETTINGS: CheckoutMethodSettings = { cryptoEnabled: false, defaultMethod: "local" };
+
+/**
+ * Decides whether Crypto Payment (NOWPayments) is offered at all in this
+ * environment, and which payment-method card is preselected — a genuinely
+ * separate axis from resolvePaymentProvider() above, which continues to
+ * decide only the LOCAL rail (Paystack vs Korapay) and knows nothing about
+ * crypto. Called from app/get-started/page.tsx (to render the right
+ * card(s) and preselection) and from lib/payments/checkout-action.ts (to
+ * re-validate the student's submitted payment_method server-side before
+ * deciding a new order's actual provider).
+ *
+ * Reads the same payment_settings row resolvePaymentProvider() reads (one
+ * per PaymentEnvironment, service-role-only), so Preview's and Production's
+ * crypto settings are independent of each other exactly like their
+ * active_provider settings already are. Fails closed to
+ * DEFAULT_CHECKOUT_METHOD_SETTINGS on any error, a missing row, or an
+ * unrecognized environment — same fail-closed philosophy as
+ * resolvePaymentProvider(): an outage must never accidentally expose or
+ * default to crypto.
+ *
+ * Callers are responsible for applying the "crypto disabled overrides a
+ * crypto default" fallback (effective default = defaultMethod === "crypto"
+ * && cryptoEnabled ? "crypto" : "local") — kept here as raw settings rather
+ * than pre-resolved, so both call sites can share the exact same one-line
+ * rule instead of this function baking in an implicit second layer of
+ * fallback logic.
+ */
+export async function resolveCheckoutMethodSettings(): Promise<CheckoutMethodSettings> {
+  if (!isRecognizedPaymentEnvironment()) {
+    return DEFAULT_CHECKOUT_METHOD_SETTINGS;
+  }
+
+  try {
+    const environment = resolvePaymentEnvironment();
+    const db = createAdminClient();
+    const { data, error } = await db
+      .from("payment_settings")
+      .select("*")
+      .eq("environment", environment)
+      .maybeSingle<PaymentSettingsRow>();
+
+    if (error || !data) {
+      return DEFAULT_CHECKOUT_METHOD_SETTINGS;
+    }
+
+    return {
+      cryptoEnabled: data.crypto_enabled === true,
+      defaultMethod: data.default_checkout_method === "crypto" ? "crypto" : "local",
+    };
+  } catch {
+    return DEFAULT_CHECKOUT_METHOD_SETTINGS;
   }
 }

@@ -6,18 +6,31 @@
 export type OrderStatus = "pending" | "successful" | "failed" | "cancelled" | "refunded" | "disputed";
 export type CourseAccessStatus = "active" | "revoked";
 
-// Added in supabase/migrations/0011_payment_provider.sql (paystack/korapay)
-// and supabase/migrations/0013_test_mode.sql ('test'). Which payment
-// provider's API was used to initialize/verify a given order — see
-// lib/payments/provider.ts (the one place that decides which provider a
-// NEW checkout uses) and lib/payments/access-activation.ts (which reads an
-// existing order's own payment_provider to know which provider's verify
-// API to re-check against, so provider selection is never re-derived or
-// guessed after the fact). 'test' is never reachable through
-// resolvePaymentProvider() — it's decided directly from the acting user's
-// own profiles.is_test in lib/payments/checkout-action.ts, before that
-// resolution ever runs. See lib/payments/test-provider.ts.
-export type PaymentProvider = "paystack" | "korapay" | "test";
+// Added in supabase/migrations/0011_payment_provider.sql (paystack/korapay),
+// 0013_test_mode.sql ('test'), and 0014_nowpayments.sql ('nowpayments').
+// Which payment provider's API was used to initialize/verify a given order
+// — see lib/payments/provider.ts (the one place that decides which LOCAL
+// provider a new checkout uses — resolvePaymentProvider() never returns
+// 'test' or 'nowpayments') and lib/payments/access-activation.ts (which
+// reads an existing order's own payment_provider to know which provider's
+// verify API to re-check against, so provider selection is never re-derived
+// or guessed after the fact). 'test' is decided directly from the acting
+// user's own profiles.is_test in lib/payments/checkout-action.ts, before any
+// provider resolution ever runs — see lib/payments/test-provider.ts.
+// 'nowpayments' is decided from the student's payment-method selection at
+// checkout, re-validated server-side against
+// lib/payments/provider.ts's resolveCheckoutMethodSettings() — see
+// lib/payments/nowpayments.ts.
+export type PaymentProvider = "paystack" | "korapay" | "test" | "nowpayments";
+
+// Added in supabase/migrations/0014_nowpayments.sql. Which payment-method
+// card the student picked on /get-started: 'local' (whatever
+// payment_settings.active_provider currently is) or 'crypto' (NOWPayments).
+// This is a separate axis from PaymentProvider — 'local' resolves to
+// 'paystack'/'korapay' via resolvePaymentProvider(), never a value stored
+// anywhere by itself. See lib/payments/provider.ts's
+// resolveCheckoutMethodSettings() and lib/payments/checkout-action.ts.
+export type CheckoutMethod = "local" | "crypto";
 
 // The outcome a test account chose on the in-app simulated checkout page
 // (app/get-started/test-checkout). See supabase/migrations/0013_test_mode.sql's
@@ -75,6 +88,11 @@ export interface OrderRow {
   // acting user's own profiles.is_test at checkout-initiation time — never
   // client input. See lib/payments/checkout-action.ts.
   is_test: boolean;
+  // Added in supabase/migrations/0014_nowpayments.sql. Set only when
+  // payment_provider = 'nowpayments' — see lib/payments/nowpayments.ts and
+  // lib/types.ts's own PaymentProvider comment above.
+  nowpayments_payment_id: string | null;
+  pay_currency: string | null;
 }
 
 export interface CourseAccessRow {
@@ -193,6 +211,11 @@ export interface PaymentSettingsRow {
   active_provider: PaymentProvider;
   updated_at: string;
   updated_by: string | null;
+  // Added in supabase/migrations/0014_nowpayments.sql. A separate axis from
+  // active_provider (which controls only the local Paystack/Korapay rail) —
+  // see lib/payments/provider.ts's resolveCheckoutMethodSettings().
+  crypto_enabled: boolean;
+  default_checkout_method: CheckoutMethod;
 }
 
 // Rows for the tables added in supabase/migrations/0010_discount_codes.sql.
