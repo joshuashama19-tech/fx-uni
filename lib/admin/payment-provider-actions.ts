@@ -181,4 +181,12 @@ export async function updateCurrencySettingsAction(formData: FormData): Promise<
   revalidatePath("/admin/payment-provider");
   revalidatePath("/admin/pricing");
   revalidatePath("/get-started");
+  // /course's PricingSection now derives its price from resolveActiveCurrency()
+  // + resolvePricing(activeCurrency) (see components/PricingSection.tsx,
+  // added alongside this file's currency support) so a currency switch must
+  // invalidate it too, exactly like updatePricingSettingsAction
+  // (lib/admin/pricing-actions.ts) already does for a price-value change —
+  // otherwise the public landing page keeps serving its previously cached
+  // currency/price after an admin switches active_currency here.
+  revalidatePath("/course");
 }
