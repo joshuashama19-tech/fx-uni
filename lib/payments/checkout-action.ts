@@ -9,7 +9,12 @@ import { initializeTransaction, generateOrderReference } from "@/lib/payments/pa
 import { initializeCharge } from "@/lib/payments/korapay";
 import { initializeCharge as initializeTestCharge } from "@/lib/payments/test-provider";
 import { initializePayment as initializeNowPaymentsPayment } from "@/lib/payments/nowpayments";
-import { resolvePaymentProvider, resolveCheckoutMethodSettings } from "@/lib/payments/provider";
+import {
+  resolvePaymentProvider,
+  resolveCheckoutMethodSettings,
+  resolveActiveCurrency,
+  providerSupportsCurrency,
+} from "@/lib/payments/provider";
 import { validateDiscountCode, discountErrorMessage, normalizeDiscountCode } from "@/lib/discounts";
 import { siteConfig } from "@/lib/course-data";
 import type { CheckoutMethod, PaymentProvider, ProfileRow } from "@/lib/types";
@@ -102,13 +107,59 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
     ? { cryptoEnabled: false, defaultMethod: "local" as const, localEnabled: true }
     : await resolveCheckoutMethodSettings();
 
-  if (!isTestAccount && !checkoutSettings.localEnabled && !checkoutSettings.cryptoEnabled) {
-    // Neither rail is available in this environment right now. Fail safe:
-    // no order row is inserted, no provider adapter is ever called, and the
-    // student is sent back to /get-started with an explanation rather than
-    // into a broken/half-started checkout. This is the one genuinely new
-    // state introduced by local_enabled — every other branch below
-    // reproduces existing behavior exactly.
+  // The ONLY place a checkout's CURRENCY is decided — server-side, from this
+  // environment's own admin-controlled setting (resolveActiveCurrency(),
+  // lib/payments/provider.ts), never from anything the browser sent. Test
+  // accounts resolve this too (unlike the local/crypto method axis, which a
+  // test account skips entirely) — Test Mode is meant to let an admin
+  // exercise both an NGN and a USD simulated checkout; it just never lets
+  // that currency reach a real provider, exactly like it never lets a real
+  // provider be reached at all (see the `provider = isTestAccount ? "test"`
+  // resolution below, unaffected by this).
+  const activeCurrency = await resolveActiveCurrency();
+
+  // A test account's order always uses 'test', which never actually talks
+  // to a payment provider (lib/payments/test-provider.ts) — currency support
+  // is trivially "all" for it, so only a real (non-test) checkout needs the
+  // local rail's actual provider resolved here, once, to know (a) whether
+  // that provider can process the active currency and (b) which provider to
+  // dispatch to later. Resolving it once and reusing it (rather than calling
+  // resolvePaymentProvider() again near the end, as before this change)
+  // keeps this to exactly one read of payment_settings for the local rail,
+  // same as before.
+  const localProviderCandidate: PaymentProvider = isTestAccount ? "test" : await resolvePaymentProvider();
+
+  // Local/crypto availability now factors in BOTH the existing admin on/off
+  // toggle AND whether that rail's actual provider can process the active
+  // currency (providerSupportsCurrency() — lib/payments/provider.ts). A
+  // provider that can't process the active currency is treated exactly like
+  // a rail the admin turned off: never available, never dispatched to,
+  // caught here BEFORE any order row is inserted — never surfaced only as a
+  // confusing failure from the provider itself after checkout already
+  // started. Test accounts are unaffected (localAvailable is always true for
+  // them; cryptoEnabled is already forced false above).
+  const localAvailable =
+    checkoutSettings.localEnabled && (isTestAccount || providerSupportsCurrency(localProviderCandidate, activeCurrency));
+  const cryptoAvailable =
+    checkoutSettings.cryptoEnabled && (isTestAccount || providerSupportsCurrency("nowpayments", activeCurrency));
+
+  if (!isTestAccount && !localAvailable && !cryptoAvailable) {
+    // Neither rail is available in this environment/currency right now.
+    // Fail safe: no order row is inserted, no provider adapter is ever
+    // called, and the student is sent back to /get-started with an
+    // explanation rather than into a broken/half-started checkout. Reached
+    // both for the pre-existing "admin turned both off" case and the new
+    // "active currency isn't supported by either rail's provider" case —
+    // deliberately the same generic message either way (a currency
+    // misconfiguration is an admin-facing problem, surfaced instead via the
+    // warning on /admin/payment-provider — see that page).
+    console.error("[checkout] no payment method available", {
+      userId: user.id,
+      activeCurrency,
+      localEnabled: checkoutSettings.localEnabled,
+      localProviderCandidate,
+      cryptoEnabled: checkoutSettings.cryptoEnabled,
+    });
     redirect(
       `/get-started?error=${encodeURIComponent(
         "Checkout isn't available right now. Please try again shortly, or contact support."
@@ -118,13 +169,13 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
 
   const checkoutMethod: CheckoutMethod = isTestAccount
     ? "local"
-    : !checkoutSettings.localEnabled
-      ? // Local is off but the guard above already confirmed crypto is on —
-        // crypto is the only available method, so it's used regardless of
-        // what the form requested (there was no valid local option to
-        // request in the first place).
+    : !localAvailable
+      ? // Local is unavailable (off, or its provider can't process the
+        // active currency) but the guard above already confirmed crypto is
+        // available — crypto is the only available method, so it's used
+        // regardless of what the form requested.
         "crypto"
-      : requestedMethod === "crypto" && checkoutSettings.cryptoEnabled
+      : requestedMethod === "crypto" && cryptoAvailable
         ? "crypto"
         : "local";
 
@@ -134,13 +185,18 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
   }
 
   // The ONLY place the base payable amount is decided: re-derived
-  // server-side, right now, from pricing_settings + the server's own clock
+  // server-side, right now, from pricing_settings (for THIS environment's
+  // active currency, resolved above) + the server's own clock
   // (lib/pricing.ts) — never from anything the browser sent. Whatever this
   // resolves to is the base that a discount (if any) is applied on top of.
+  // resolvePricing() throws if activeCurrency is "USD" but no USD price has
+  // been configured yet — caught below exactly like any other pricing
+  // failure, so a currency the admin activated without setting a price for
+  // fails checkout closed rather than charging something nobody configured.
   let baseAmountMinorUnits: number;
   let currency: string;
   try {
-    const state = await resolvePricing();
+    const state = await resolvePricing(activeCurrency);
     baseAmountMinorUnits = state.payableMinorUnits;
     currency = state.currency;
   } catch {
@@ -158,7 +214,7 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
   let amountMinorUnits = baseAmountMinorUnits;
 
   if (rawDiscountCode) {
-    const validation = await validateDiscountCode(rawDiscountCode, user.id, baseAmountMinorUnits);
+    const validation = await validateDiscountCode(rawDiscountCode, user.id, baseAmountMinorUnits, activeCurrency);
     if (!validation.valid) {
       // The code was valid at "Apply" time but no longer is (used up, expired,
       // deactivated, or never was valid — e.g. a hand-edited query string).
@@ -176,18 +232,19 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
 
   // The ONLY place a new checkout's provider is decided — server-side,
   // before any provider adapter is touched. A test account's order is
-  // always 'test', decided directly from isTestAccount above —
-  // resolvePaymentProvider() (lib/payments/provider.ts), and therefore
-  // Production's/Preview's own active-provider setting, is never even
-  // called for a test account. Otherwise, checkoutMethod above (already
-  // re-validated against crypto_enabled) decides between the crypto rail
-  // and the existing local-provider resolution — resolvePaymentProvider()
-  // is unchanged and still knows nothing about crypto at all.
+  // always 'test', decided directly from isTestAccount above.
+  // localProviderCandidate was already resolved once, above, specifically
+  // so its currency support could be checked before any order existed;
+  // reused here rather than calling resolvePaymentProvider() a second time.
+  // Otherwise, checkoutMethod above (already re-validated against
+  // cryptoAvailable) decides between the crypto rail and that local
+  // resolution — resolvePaymentProvider() itself is unchanged and still
+  // knows nothing about crypto or currency at all.
   const provider: PaymentProvider = isTestAccount
     ? "test"
     : checkoutMethod === "crypto"
       ? "nowpayments"
-      : await resolvePaymentProvider();
+      : localProviderCandidate;
 
   const { data: insertedOrder, error: insertError } = await supabase
     .from("orders")
@@ -347,9 +404,11 @@ export async function applyDiscountCodeAction(formData: FormData): Promise<void>
     redirect("/get-started");
   }
 
+  const activeCurrency = await resolveActiveCurrency();
+
   let baseAmountMinorUnits: number;
   try {
-    const state = await resolvePricing();
+    const state = await resolvePricing(activeCurrency);
     baseAmountMinorUnits = state.payableMinorUnits;
   } catch {
     redirect(
@@ -357,7 +416,7 @@ export async function applyDiscountCodeAction(formData: FormData): Promise<void>
     );
   }
 
-  const validation = await validateDiscountCode(rawCode, user.id, baseAmountMinorUnits);
+  const validation = await validateDiscountCode(rawCode, user.id, baseAmountMinorUnits, activeCurrency);
   if (!validation.valid) {
     redirect(`/get-started?discount_error=${encodeURIComponent(discountErrorMessage(validation.reason))}`);
   }

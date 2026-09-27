@@ -5,6 +5,18 @@ import { resolvePricing } from "@/lib/pricing";
 import { updatePricingSettingsAction } from "@/lib/admin/pricing-actions";
 import type { PricingSettingsRow } from "@/lib/types";
 
+// resolvePricing("USD") throws when no USD price is configured yet (see
+// lib/pricing.ts) — this page needs to render the "Right now" summary either
+// way, so a thrown error there is treated as "not configured" rather than
+// bubbling up and breaking the whole page.
+async function tryResolveUsdPricing() {
+  try {
+    return await resolvePricing("USD");
+  } catch {
+    return null;
+  }
+}
+
 export const metadata: Metadata = { title: "Admin — Pricing" };
 
 async function getRawSettings(): Promise<PricingSettingsRow | null> {
@@ -28,7 +40,11 @@ function toDatetimeLocalUtc(iso: string | null): string {
 
 export default async function AdminPricingPage() {
   await requireAdmin();
-  const [settings, pricing] = await Promise.all([getRawSettings(), resolvePricing()]);
+  const [settings, pricing, usdPricing] = await Promise.all([
+    getRawSettings(),
+    resolvePricing(),
+    tryResolveUsdPricing(),
+  ]);
 
   return (
     <main className="px-5 py-12">
@@ -65,6 +81,35 @@ export default async function AdminPricingPage() {
           </dl>
         </div>
 
+        {/* USD's own "right now" summary — a separate price from NGN's
+            above, not a converted view of it. Shows "Not configured" rather
+            than a guessed amount when no USD price has been set (see
+            tryResolveUsdPricing() above and lib/pricing.ts's
+            resolvePricing("USD")). Which of NGN/USD a checkout actually uses
+            is controlled separately, from /admin/payment-provider's Payment
+            currency section — this page only ever sets the two prices. */}
+        <div className="mt-4 rounded-xl border border-ink-100 bg-ink-50 p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Right now (USD)</p>
+          {usdPricing ? (
+            <dl className="mt-3 grid grid-cols-2 gap-y-2 text-sm sm:grid-cols-4">
+              <dt className="text-ink-500">Regular price</dt>
+              <dd className="text-ink-900">{usdPricing.regularPriceFormatted}</dd>
+              <dt className="text-ink-500">Current offer</dt>
+              <dd className="text-ink-900">{usdPricing.offerPriceFormatted ?? "—"}</dd>
+              <dt className="text-ink-500">Promotion</dt>
+              <dd className={usdPricing.isPromoActive ? "font-medium text-brand-700" : "text-ink-600"}>
+                {usdPricing.isPromoActive ? "Active" : settings?.promotion_active ? "Configured, not in window" : "Inactive"}
+              </dd>
+              <dt className="text-ink-500">Payable now</dt>
+              <dd className="font-semibold text-ink-950">{usdPricing.payableFormatted}</dd>
+            </dl>
+          ) : (
+            <p className="mt-2 text-sm text-ink-500">
+              Not configured yet — set a USD price below before switching the active currency to USD.
+            </p>
+          )}
+        </div>
+
         <form action={updatePricingSettingsAction} className="mt-8 space-y-6 rounded-xl border border-ink-100 bg-white p-5">
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="grid gap-1.5 text-sm">
@@ -92,6 +137,51 @@ export default async function AdminPricingPage() {
                 className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
               />
             </label>
+          </div>
+
+          {/* USD pricing — a SEPARATE, independently admin-set price, never
+              a converted view of the NGN price above. Both fields optional:
+              leaving "USD price" blank means USD checkout isn't configured
+              yet (lib/pricing.ts's resolvePricing("USD") fails closed rather
+              than guessing an amount). Which currency is actually active for
+              checkout is a different, independent setting — see the
+              "Payment currency" section on /admin/payment-provider. */}
+          <div className="border-t border-ink-100 pt-6">
+            <p className="text-sm font-medium text-ink-900">USD pricing</p>
+            <p className="mt-1 text-xs text-ink-500">
+              A separate price from the NGN price above — set independently, never calculated from an exchange
+              rate. Required before the active currency can be switched to USD on /admin/payment-provider.
+            </p>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <label className="grid gap-1.5 text-sm">
+                <span className="font-medium text-ink-700">USD price</span>
+                <input
+                  type="number"
+                  name="usd_regular_price"
+                  min="1"
+                  step="0.01"
+                  defaultValue={toMajorAmountString(settings?.usd_regular_price_minor_units ?? null)}
+                  placeholder="e.g. 49"
+                  className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                />
+              </label>
+              <label className="grid gap-1.5 text-sm">
+                <span className="font-medium text-ink-700">USD offer price (optional)</span>
+                <input
+                  type="number"
+                  name="usd_offer_price"
+                  min="1"
+                  step="0.01"
+                  defaultValue={toMajorAmountString(settings?.usd_offer_price_minor_units ?? null)}
+                  placeholder="Leave blank for no promotion"
+                  className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                />
+              </label>
+            </div>
+            <p className="mt-2 text-xs text-ink-500">
+              Uses the same Promotion active/window/countdown settings below — one campaign, shown in whichever
+              currency is active.
+            </p>
           </div>
 
           <label className="flex items-center gap-2 text-sm font-medium text-ink-700">

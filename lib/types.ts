@@ -45,6 +45,13 @@ export type TestPaymentOutcome = "success" | "failed" | "cancelled";
 // see that migration's file header.
 export type PaymentEnvironment = "production" | "preview";
 
+// Added in supabase/migrations/20260927190000_payment_currency.sql. Which
+// currency a NEW checkout uses in a given environment — a fourth, independent
+// payment_settings axis alongside active_provider/local_enabled/
+// crypto_enabled. See lib/payments/provider.ts's resolveActiveCurrency() and
+// lib/pricing.ts's resolvePricing(currency).
+export type Currency = "NGN" | "USD";
+
 export interface ProfileRow {
   id: string;
   email: string;
@@ -195,6 +202,15 @@ export interface PricingSettingsRow {
   countdown_enabled: boolean;
   updated_at: string;
   updated_by: string | null;
+  // Added in supabase/migrations/20260927190000_payment_currency.sql. A
+  // SEPARATE, independently admin-set USD price — never derived from
+  // regular_price_minor_units via an exchange rate. Null means "USD pricing
+  // not configured yet" — see lib/pricing.ts's resolvePricing("USD").
+  usd_regular_price_minor_units: number | null;
+  // The USD counterpart to offer_price_minor_units. Null means no USD
+  // promotion configured. Shares this row's single promotion_active/window/
+  // countdown_enabled campaign with the NGN offer price.
+  usd_offer_price_minor_units: number | null;
 }
 
 // Row for the table added in supabase/migrations/0012_payment_provider_settings.sql.
@@ -221,6 +237,11 @@ export interface PaymentSettingsRow {
   // active_provider selects) is offered at all. Defaults to true — see that
   // migration's file header and resolveCheckoutMethodSettings().
   local_enabled: boolean;
+  // Added in supabase/migrations/20260927190000_payment_currency.sql. A
+  // fourth, independent axis: which currency NEW checkouts in this
+  // environment use. Defaults to 'NGN' — see that migration's file header
+  // and resolveActiveCurrency() in lib/payments/provider.ts.
+  active_currency: Currency;
 }
 
 // Rows for the tables added in supabase/migrations/0010_discount_codes.sql.

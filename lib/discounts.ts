@@ -1,6 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { DiscountCodeRow } from "@/lib/types";
+import type { Currency, DiscountCodeRow } from "@/lib/types";
 
 // -----------------------------------------------------------------------
 // Discount code validation + redemption.
@@ -74,7 +74,19 @@ export type DiscountValidationFailureReason =
   | "expired"
   | "max_uses_reached"
   | "max_uses_per_customer_reached"
-  | "service_unavailable";
+  | "service_unavailable"
+  // Added alongside supabase/migrations/20260927190000_payment_currency.sql.
+  // discount_codes.discount_value for a 'fixed' code is documented (see that
+  // table's own column comment in 0010_discount_codes.sql) as minor units in
+  // the currency that code was created under — historically always NGN
+  // (kobo), since currency didn't exist as a concept before now. A fixed
+  // NGN-denominated amount applied against a USD order would be a
+  // meaningless number (kobo subtracted from cents), not a currency
+  // conversion bug so much as a fundamentally wrong discount amount — so
+  // rather than silently doing that arithmetic, a 'fixed' code is simply not
+  // valid outside NGN. 'percentage' codes are unaffected (proportional,
+  // currency-agnostic) and remain valid in every currency.
+  | "currency_unsupported";
 
 export type DiscountValidationResult =
   | {
@@ -101,6 +113,8 @@ export function discountErrorMessage(reason: DiscountValidationFailureReason): s
       return "You've already used that discount code.";
     case "service_unavailable":
       return "Couldn't check that discount code right now. Please try again.";
+    case "currency_unsupported":
+      return "That discount code isn't valid for the selected currency.";
   }
 }
 
@@ -114,6 +128,7 @@ export async function validateDiscountCode(
   rawCode: string,
   userId: string,
   baseAmountMinorUnits: number,
+  currency: Currency = "NGN",
   now: Date = new Date()
 ): Promise<DiscountValidationResult> {
   const code = normalizeDiscountCode(rawCode);
@@ -135,6 +150,12 @@ export async function validateDiscountCode(
   if (error) return { valid: false, reason: "service_unavailable" };
   if (!discount) return { valid: false, reason: "not_found" };
   if (!discount.is_active) return { valid: false, reason: "inactive" };
+  // 'fixed' discount amounts are NGN-kobo-denominated (see
+  // DiscountValidationFailureReason's "currency_unsupported" doc comment
+  // above) — never applied outside NGN. 'percentage' is unaffected.
+  if (discount.discount_type === "fixed" && currency !== "NGN") {
+    return { valid: false, reason: "currency_unsupported" };
+  }
 
   const windowState = isWithinWindow(discount, now);
   if (windowState === "before_start") return { valid: false, reason: "not_started" };

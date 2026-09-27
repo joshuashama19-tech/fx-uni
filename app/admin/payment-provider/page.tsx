@@ -2,9 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/access";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { updatePaymentProviderAction, updateCheckoutMethodSettingsAction } from "@/lib/admin/payment-provider-actions";
-import { resolvePaymentEnvironment, resolveCheckoutMethodSettings } from "@/lib/payments/provider";
-import type { PaymentEnvironment, PaymentSettingsRow } from "@/lib/types";
+import {
+  updatePaymentProviderAction,
+  updateCheckoutMethodSettingsAction,
+  updateCurrencySettingsAction,
+} from "@/lib/admin/payment-provider-actions";
+import { resolvePaymentEnvironment, resolveCheckoutMethodSettings, providerSupportsCurrency } from "@/lib/payments/provider";
+import type { Currency, PaymentEnvironment, PaymentSettingsRow, PricingSettingsRow } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Admin — Payment Provider" };
 
@@ -30,17 +34,46 @@ const ENVIRONMENT_LABEL: Record<PaymentEnvironment, string> = {
   preview: "Preview",
 };
 
-async function getActiveProvider(environment: PaymentEnvironment): Promise<"paystack" | "korapay"> {
+const CURRENCY_LABEL: Record<Currency, string> = {
+  NGN: "NGN ₦",
+  USD: "USD $",
+};
+
+/**
+ * Single read of this environment's payment_settings row, shared by the
+ * Local Payments/Active Provider section, the Crypto Payments section
+ * (checkoutMethodSettings comes from resolveCheckoutMethodSettings()
+ * separately, which does its own read — unchanged from before this file was
+ * touched), and the new Payment currency section below — added so the new
+ * section doesn't need a second round-trip for a row this page already
+ * fetches. Same safe-default philosophy as resolvePaymentProvider()/
+ * resolveActiveCurrency() (lib/payments/provider.ts) — an unreadable/missing
+ * row is shown as Paystack/NGN here too, never left ambiguous.
+ */
+async function getPaymentSettings(
+  environment: PaymentEnvironment
+): Promise<{ activeProvider: "paystack" | "korapay"; activeCurrency: Currency }> {
   const db = createAdminClient();
   const { data } = await db
     .from("payment_settings")
     .select("*")
     .eq("environment", environment)
     .maybeSingle<PaymentSettingsRow>();
-  // Same safe-default philosophy as resolvePaymentProvider() itself
-  // (lib/payments/provider.ts) — an unreadable/missing row is shown as
-  // Paystack here too, never left ambiguous or shown as Korapay.
-  return data?.active_provider === "korapay" ? "korapay" : "paystack";
+  return {
+    activeProvider: data?.active_provider === "korapay" ? "korapay" : "paystack",
+    activeCurrency: data?.active_currency === "USD" ? "USD" : "NGN",
+  };
+}
+
+/** Whether a USD regular price has been configured at all (/admin/pricing) — used only to warn, never to block the currency switch itself. */
+async function isUsdPricingConfigured(): Promise<boolean> {
+  const db = createAdminClient();
+  const { data } = await db
+    .from("pricing_settings")
+    .select("usd_regular_price_minor_units")
+    .eq("id", 1)
+    .maybeSingle<Pick<PricingSettingsRow, "usd_regular_price_minor_units">>();
+  return data?.usd_regular_price_minor_units != null;
 }
 
 /**
@@ -64,14 +97,18 @@ async function getActiveProvider(environment: PaymentEnvironment): Promise<"pays
 export default async function AdminPaymentProviderPage({
   searchParams,
 }: {
-  searchParams: Promise<{ confirm?: string }>;
+  searchParams: Promise<{ confirm?: string; confirmCurrency?: string }>;
 }) {
   await requireAdmin();
   const params = await searchParams;
   const environment = resolvePaymentEnvironment();
-  const activeProvider = await getActiveProvider(environment);
+  const { activeProvider, activeCurrency } = await getPaymentSettings(environment);
   const checkoutMethodSettings = await resolveCheckoutMethodSettings();
+  const usdPricingConfigured = await isUsdPricingConfigured();
   const environmentLabel = ENVIRONMENT_LABEL[environment];
+
+  const pendingCurrency: Currency | null =
+    params.confirmCurrency === "NGN" || params.confirmCurrency === "USD" ? params.confirmCurrency : null;
 
   const pendingConfirm: "paystack" | "korapay" | null =
     params.confirm === "paystack" || params.confirm === "korapay" ? params.confirm : null;
@@ -275,6 +312,133 @@ export default async function AdminPaymentProviderPage({
               Save crypto settings
             </button>
           </form>
+        </div>
+
+        {/* PAYMENT CURRENCY — a fourth, independent axis from Active
+            Provider/Local Payments above and Crypto Payments above that,
+            per supabase/migrations/20260927190000_payment_currency.sql.
+            Switching NGN/USD here never changes active_provider,
+            local_enabled, crypto_enabled, or default_checkout_method, and
+            none of those settings change this. Only affects NEW checkouts
+            in this environment from the moment of confirmation — an
+            existing order keeps the currency/amount it was created with
+            forever (orders.currency/amount_minor_units are immutable; see
+            lib/payments/access-activation.ts's verification-time currency
+            match check). NGN Price / USD Price themselves are set on
+            /admin/pricing, not here — this only chooses which of the two
+            configured prices new checkouts use. */}
+        <div className="mt-8">
+          <h2 className="text-lg font-semibold text-ink-950">Payment currency</h2>
+          <p className="mt-1 text-sm text-ink-500">
+            Controls which price — NGN or USD, set on{" "}
+            <Link href="/admin/pricing" className="underline hover:text-ink-700">
+              /admin/pricing
+            </Link>{" "}
+            — new checkouts in {environmentLabel} use. Existing orders are never affected: each keeps the currency
+            and amount it was created with.
+          </p>
+
+          <div className="mt-4 rounded-xl border border-ink-100 bg-ink-50 p-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Active currency</p>
+            <p className="mt-1 text-2xl font-semibold text-ink-950">{CURRENCY_LABEL[activeCurrency]}</p>
+          </div>
+
+          {/* Warnings about the CURRENT active currency — shown regardless
+              of whether the admin is mid-switch, so a bad combination
+              never goes unnoticed just because nobody happened to visit
+              the confirm step. These never block anything by themselves;
+              lib/payments/checkout-action.ts's providerSupportsCurrency()
+              gate is what actually prevents a broken checkout attempt. */}
+          {activeCurrency === "USD" && !providerSupportsCurrency(activeProvider, "USD") ? (
+            <p className="mt-3 text-xs font-medium text-red-700">
+              {PROVIDER_LABEL[activeProvider]} does not support USD in this integration — Local Payment checkouts
+              will be hidden in USD until you switch the active provider to one that supports it, or switch back to
+              NGN. Crypto Payments (NOWPayments), if enabled, is unaffected.
+            </p>
+          ) : null}
+          {activeCurrency === "USD" && activeProvider === "paystack" && providerSupportsCurrency("paystack", "USD") ? (
+            <p className="mt-3 text-xs font-medium text-amber-700">
+              Paystack USD support depends on your Paystack account having international payments enabled with a
+              USD settlement account — this is not something this app can verify. If that isn&apos;t set up yet,
+              Paystack will reject USD charges even though this app is configured to attempt them.
+            </p>
+          ) : null}
+          {activeCurrency === "USD" && !usdPricingConfigured ? (
+            <p className="mt-3 text-xs font-medium text-red-700">
+              No USD price is configured yet on /admin/pricing — USD checkouts will fail safely with a
+              &quot;checkout isn&apos;t fully configured&quot; message until a USD price is set.
+            </p>
+          ) : null}
+
+          {pendingCurrency && pendingCurrency !== activeCurrency ? (
+            <div className="mt-6 rounded-xl border border-brand-200 bg-brand-50 p-5">
+              <p className="text-sm font-semibold text-brand-700">
+                Switch {environmentLabel} to {CURRENCY_LABEL[pendingCurrency]}?
+              </p>
+              <p className="mt-1.5 text-sm text-brand-700">
+                New checkouts in {environmentLabel} will use the {pendingCurrency} price immediately after you
+                confirm. This does not change Active Provider, Local Payments, or Crypto Payments, and no existing
+                order is affected.
+              </p>
+              {pendingCurrency === "USD" && !providerSupportsCurrency(activeProvider, "USD") ? (
+                <p className="mt-2 text-sm font-medium text-red-700">
+                  Warning: {PROVIDER_LABEL[activeProvider]} does not support USD in this integration. Local Payment
+                  will be hidden in USD — only Crypto Payments (if enabled) would remain available.
+                </p>
+              ) : null}
+              {pendingCurrency === "USD" && !usdPricingConfigured ? (
+                <p className="mt-2 text-sm font-medium text-red-700">
+                  Warning: no USD price is set on /admin/pricing yet. Set one first, or USD checkouts will fail
+                  safely rather than charge anything.
+                </p>
+              ) : null}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <form action={updateCurrencySettingsAction}>
+                  <input type="hidden" name="active_currency" value={pendingCurrency} />
+                  <button
+                    type="submit"
+                    className="rounded-full bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+                  >
+                    Confirm switch to {CURRENCY_LABEL[pendingCurrency]}
+                  </button>
+                </form>
+                <Link
+                  href="/admin/payment-provider"
+                  className="inline-flex items-center rounded-full border border-ink-200 px-5 py-2 text-sm font-semibold text-ink-700 hover:bg-ink-50"
+                >
+                  Cancel
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-6 rounded-xl border border-ink-100 bg-white p-5">
+              <p className="text-sm font-medium text-ink-700">Switch currency for {environmentLabel}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(["NGN", "USD"] as const).map((currency) => (
+                  <Link
+                    key={currency}
+                    href={
+                      currency === activeCurrency
+                        ? "/admin/payment-provider"
+                        : `/admin/payment-provider?confirmCurrency=${currency}`
+                    }
+                    aria-current={currency === activeCurrency ? "true" : undefined}
+                    className={`rounded-full px-5 py-2 text-sm font-semibold ${
+                      currency === activeCurrency
+                        ? "bg-ink-900 text-white"
+                        : "border border-ink-200 text-ink-700 hover:bg-ink-50"
+                    }`}
+                  >
+                    {CURRENCY_LABEL[currency]}
+                  </Link>
+                ))}
+              </div>
+              <p className="mt-3 text-xs text-ink-500">
+                NGN is the safe default for every environment — if this setting is ever unreadable, checkout falls
+                back to NGN rather than breaking.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </main>

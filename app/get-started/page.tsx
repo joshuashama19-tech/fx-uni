@@ -9,6 +9,8 @@ import { initializeCheckoutAction, applyDiscountCodeAction } from "@/lib/payment
 import {
   resolvePaymentProvider,
   resolveCheckoutMethodSettings,
+  resolveActiveCurrency,
+  providerSupportsCurrency,
   type PaymentProvider,
   type CheckoutMethod,
 } from "@/lib/payments/provider";
@@ -16,11 +18,24 @@ import { siteConfig } from "@/lib/course-data";
 import { getSiteContent } from "@/lib/content";
 import { resolvePricing, formatMinorUnits } from "@/lib/pricing";
 import { validateDiscountCode } from "@/lib/discounts";
-import type { ProfileRow } from "@/lib/types";
+import type { ProfileRow, Currency } from "@/lib/types";
 import { Container } from "@/components/ui/Container";
 import { IconArrowRight, IconAlert, IconMail } from "@/components/icons";
 import { SignupForm } from "@/components/auth/SignupForm";
 import { PasswordField } from "@/components/auth/PasswordField";
+
+// resolvePricing(currency) throws when that currency's price hasn't been
+// configured yet on /admin/pricing (see lib/pricing.ts) — this page needs
+// to render a clear "not fully configured" state rather than a broken
+// checkout attempt, so a thrown error here is caught and treated as "no
+// price available" rather than crashing the whole page.
+async function tryResolvePricing(currency: Currency) {
+  try {
+    return await resolvePricing(currency);
+  } catch {
+    return null;
+  }
+}
 
 export const metadata: Metadata = {
   title: "Get Started",
@@ -61,7 +76,6 @@ export default async function GetStartedPage({
     }
   }
 
-  const pricingState = await resolvePricing();
   const content = await getSiteContent();
   // Only resolved for a signed-in visitor (CheckoutPanel is the only
   // consumer) — matches the original behavior of not touching this at all
@@ -88,6 +102,12 @@ export default async function GetStartedPage({
   // row. See supabase/migrations/20260927140054_local_payments_toggle.sql.
   let localEnabled = true;
   let effectiveDefaultMethod: CheckoutMethod = "local";
+  // Fails closed to NGN, mirroring resolveActiveCurrency()'s own fail-closed
+  // default and every other setting above — a signed-out visitor or (before
+  // it's resolved below) a test account sees the same safe assumption a
+  // real checkout would fall back to on an unreadable/missing row. See
+  // supabase/migrations/20260927190000_payment_currency.sql.
+  let activeCurrency: Currency = "NGN";
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
@@ -96,19 +116,32 @@ export default async function GetStartedPage({
       .maybeSingle<Pick<ProfileRow, "is_test">>();
     const isTestAccount = profile?.is_test === true;
     paymentProvider = isTestAccount ? "test" : await resolvePaymentProvider();
+    // Resolved for every signed-in user, test accounts included — Test
+    // Mode is isolated from real providers, but must still respect the
+    // active-currency setting so NGN and USD can both be simulated (see
+    // lib/payments/test-provider.ts and the currency spec's Test Mode
+    // section).
+    activeCurrency = await resolveActiveCurrency();
     if (!isTestAccount) {
       const checkoutSettings = await resolveCheckoutMethodSettings();
-      cryptoEnabled = checkoutSettings.cryptoEnabled;
-      localEnabled = checkoutSettings.localEnabled;
+      // Gated by providerSupportsCurrency in addition to the admin's
+      // on/off toggle — a method the admin left "on" is still hidden if
+      // the active provider genuinely can't process the active currency
+      // (e.g. Korapay + USD). Mirrors the exact same gate
+      // lib/payments/checkout-action.ts applies server-side, so this page
+      // never shows an option that action would refuse anyway.
+      cryptoEnabled = checkoutSettings.cryptoEnabled && providerSupportsCurrency("nowpayments", activeCurrency);
+      localEnabled = checkoutSettings.localEnabled && providerSupportsCurrency(paymentProvider, activeCurrency);
       // The required fallback: a default of "crypto" while crypto is
-      // disabled must never preselect (or expose) a broken option — it
-      // silently becomes "local" instead. See
-      // lib/payments/provider.ts's resolveCheckoutMethodSettings() doc
-      // comment for why this one-line rule lives at each call site rather
-      // than inside that function.
-      effectiveDefaultMethod = checkoutSettings.defaultMethod === "crypto" && checkoutSettings.cryptoEnabled ? "crypto" : "local";
+      // disabled (by the toggle OR by this currency gate) must never
+      // preselect (or expose) a broken option — it silently becomes
+      // "local" instead. See lib/payments/provider.ts's
+      // resolveCheckoutMethodSettings() doc comment for why this one-line
+      // rule lives at each call site rather than inside that function.
+      effectiveDefaultMethod = checkoutSettings.defaultMethod === "crypto" && cryptoEnabled ? "crypto" : "local";
     }
   }
+  const pricingState = await tryResolvePricing(activeCurrency);
   const next = params.next && params.next.startsWith("/") && !params.next.startsWith("//") ? params.next : "/learn";
 
   // Re-validates the code from the `?discount=` query string (set by
@@ -117,8 +150,13 @@ export default async function GetStartedPage({
   // initializeCheckoutAction re-validates it a second, completely
   // independent time when the student actually submits checkout.
   let discountPreview: DiscountPreview | null = null;
-  if (user && params.discount) {
-    const validation = await validateDiscountCode(params.discount, user.id, pricingState.payableMinorUnits);
+  if (user && params.discount && pricingState) {
+    const validation = await validateDiscountCode(
+      params.discount,
+      user.id,
+      pricingState.payableMinorUnits,
+      activeCurrency
+    );
     if (validation.valid) {
       discountPreview = {
         code: validation.discount.code,
@@ -178,6 +216,7 @@ export default async function GetStartedPage({
             <CheckoutPanel
               email={user.email ?? ""}
               pricing={pricingState}
+              activeCurrency={activeCurrency}
               billingNote={content.pricing_billing_note}
               discountPreview={discountPreview}
               paymentProvider={paymentProvider}
@@ -245,6 +284,7 @@ const PAYMENT_PROVIDER_DISPLAY_NAME: Record<PaymentProvider, string> = {
 function CheckoutPanel({
   email,
   pricing,
+  activeCurrency,
   billingNote,
   discountPreview,
   paymentProvider,
@@ -253,7 +293,8 @@ function CheckoutPanel({
   effectiveDefaultMethod,
 }: {
   email: string;
-  pricing: Awaited<ReturnType<typeof resolvePricing>>;
+  pricing: Awaited<ReturnType<typeof resolvePricing>> | null;
+  activeCurrency: Currency;
   billingNote: string;
   discountPreview: DiscountPreview | null;
   paymentProvider: PaymentProvider;
@@ -261,6 +302,34 @@ function CheckoutPanel({
   localEnabled: boolean;
   effectiveDefaultMethod: CheckoutMethod;
 }) {
+  // pricing is null only when the active currency has no price configured
+  // yet on /admin/pricing (see tryResolvePricing() above and
+  // lib/pricing.ts's resolvePricing()) — never a real order's price. Shown
+  // as its own clear state rather than a broken checkout attempt; the same
+  // situation is what makes initializeCheckoutAction redirect back here
+  // with "checkout isn't fully configured" if this were somehow bypassed.
+  if (!pricing) {
+    return (
+      <div>
+        <p className="mb-6 text-sm text-ink-500">
+          Signed in as <span className="font-medium text-ink-900">{email}</span>
+        </p>
+        <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 text-center">
+          <p className="text-sm font-semibold text-brand-700">Checkout isn&apos;t available right now</p>
+          <p className="mt-1 text-sm text-brand-700">
+            {activeCurrency} pricing hasn&apos;t been configured yet. Please try again shortly, or contact support
+            if this continues.
+          </p>
+        </div>
+        <p className="mt-4 text-center">
+          <Link href="/account" className="text-sm text-ink-500 underline underline-offset-2 hover:text-ink-800">
+            Not you? Manage account
+          </Link>
+        </p>
+      </div>
+    );
+  }
+
   // A test account always goes straight to the in-app simulated checkout
   // (see the paymentProvider === "test" branch further down) and never
   // reaches either on/off setting — checkoutBlocked only ever applies to a

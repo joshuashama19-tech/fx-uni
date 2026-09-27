@@ -1,8 +1,8 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { CheckoutMethod, PaymentEnvironment, PaymentProvider, PaymentSettingsRow } from "@/lib/types";
+import type { CheckoutMethod, Currency, PaymentEnvironment, PaymentProvider, PaymentSettingsRow } from "@/lib/types";
 
-export type { PaymentProvider, PaymentEnvironment, CheckoutMethod };
+export type { PaymentProvider, PaymentEnvironment, CheckoutMethod, Currency };
 
 // Paystack stays the safe default provider for every new checkout, in
 // every environment: the schema default on payment_settings.active_provider
@@ -222,4 +222,114 @@ export async function resolveCheckoutMethodSettings(): Promise<CheckoutMethodSet
   } catch {
     return DEFAULT_CHECKOUT_METHOD_SETTINGS;
   }
+}
+
+// Added alongside supabase/migrations/20260927190000_payment_currency.sql.
+// 'NGN' is the safe default/fallback for the exact same reason Paystack is
+// DEFAULT_PAYMENT_PROVIDER above: it's what every environment already runs
+// as today, so an unreadable/missing row or an unrecognized environment must
+// never silently move the Nigerian funnel to USD.
+const DEFAULT_CURRENCY: Currency = "NGN";
+
+/**
+ * Decides which currency a NEW checkout uses in THIS environment — a fourth,
+ * independent axis from resolvePaymentProvider() (which local rail),
+ * resolveCheckoutMethodSettings()'s cryptoEnabled (whether crypto is offered
+ * at all) and localEnabled (whether the local rail is offered at all). Reads
+ * the same per-environment payment_settings row those two functions read,
+ * so Production's and Preview's currency are independent of each other
+ * exactly like their other three settings already are.
+ *
+ * Fails closed to 'NGN' on any error, a missing row, an unrecognized
+ * environment, or an unrecognized stored value — never anything else. This
+ * is what "the existing Nigerian checkout must continue working exactly as
+ * before when currency is NGN" means concretely: an outage here can only
+ * ever produce the currency every environment already runs as today, never
+ * accidentally expose USD pricing/checkout nobody configured.
+ *
+ * Called from lib/payments/checkout-action.ts (to decide a NEW order's
+ * actual amount/currency — never trusted from the browser) and
+ * app/get-started/page.tsx / app/admin/pricing/page.tsx (to display the
+ * right price). An already-created order's own orders.currency remains the
+ * sole source of truth for what THAT order was for — this function is never
+ * consulted again once an order exists (mirrors resolvePaymentProvider()'s
+ * own doc comment on this point exactly).
+ */
+export async function resolveActiveCurrency(): Promise<Currency> {
+  if (!isRecognizedPaymentEnvironment()) {
+    return DEFAULT_CURRENCY;
+  }
+
+  try {
+    const environment = resolvePaymentEnvironment();
+    const db = createAdminClient();
+    const { data, error } = await db
+      .from("payment_settings")
+      .select("*")
+      .eq("environment", environment)
+      .maybeSingle<PaymentSettingsRow>();
+
+    if (error || !data) {
+      return DEFAULT_CURRENCY;
+    }
+
+    return data.active_currency === "USD" ? "USD" : DEFAULT_CURRENCY;
+  } catch {
+    return DEFAULT_CURRENCY;
+  }
+}
+
+/**
+ * Which currencies each payment provider's integration, AS ACTUALLY WIRED UP
+ * IN THIS CODEBASE, is treated as able to process. This is deliberately a
+ * static allowlist, not a runtime capability probe (none of these providers
+ * expose one) — checked BEFORE a provider is ever called, so an unsupported
+ * combination fails safely (no order row inserted, no provider adapter
+ * called — see lib/payments/checkout-action.ts) instead of surfacing only as
+ * a confusing provider-side error after an order already exists.
+ *
+ * What's behind each entry (verified against each provider's current public
+ * documentation during implementation, never assumed):
+ *   - 'test': every currency. Never a real network call (lib/payments/
+ *     test-provider.ts) — nothing to actually support or fail on.
+ *   - 'paystack': NGN always. USD is a real, documented Paystack capability
+ *     (the `currency` field this adapter already sends accepts it) but is
+ *     NOT automatically enabled on a Nigerian merchant account — Paystack
+ *     requires the merchant to separately request/enable international
+ *     payments and add a USD settlement (domiciliary) account before USD
+ *     transactions actually work. This codebase cannot verify from here
+ *     whether Josh's specific Paystack account has that enabled, so USD is
+ *     listed as supported (the integration itself does the right thing —
+ *     sends 'USD' through unchanged, nothing hardcoded to NGN) but this MUST
+ *     be confirmed on the live Paystack account before relying on it — see
+ *     the admin-UI warning in app/admin/payment-provider/page.tsx.
+ *   - 'korapay': NGN only. Korapay's own Checkout Redirect documentation
+ *     (https://developers.korapay.com/docs/checkout-redirect) documents its
+ *     `currency` field with NGN/GHS/KES examples and does not document USD
+ *     as a supported checkout currency anywhere in that flow. Rather than
+ *     guess, USD is treated as unsupported for Korapay — checkout fails
+ *     safely (see below) instead of attempting a charge Korapay may reject
+ *     or mishandle.
+ *   - 'nowpayments': NGN and USD. The `price_currency` field this adapter
+ *     already sends accepts arbitrary standard fiat codes; 'ngn' is the
+ *     exact value this integration has been sending in production since
+ *     0014_nowpayments.sql shipped (pricing_settings.currency has always
+ *     been 'NGN'), so NGN support is proven, not assumed. USD is NOWPayments'
+ *     most commonly documented fiat price_currency and is supported on the
+ *     same code path — if this is ever wrong for a specific NOWPayments
+ *     account configuration, initializePayment()'s existing error handling
+ *     (lib/payments/nowpayments.ts) already fails the checkout safely rather
+ *     than silently mischarging.
+ */
+const CURRENCY_PROVIDER_SUPPORT: Record<PaymentProvider, ReadonlySet<Currency> | "all"> = {
+  test: "all",
+  paystack: new Set<Currency>(["NGN", "USD"]),
+  korapay: new Set<Currency>(["NGN"]),
+  nowpayments: new Set<Currency>(["NGN", "USD"]),
+};
+
+/** True if `provider`'s integration, as wired up in this codebase, can process `currency` — see CURRENCY_PROVIDER_SUPPORT's doc comment above for what each answer is actually based on. */
+export function providerSupportsCurrency(provider: PaymentProvider, currency: Currency): boolean {
+  const supported = CURRENCY_PROVIDER_SUPPORT[provider];
+  return supported === "all" || supported.has(currency);
 }

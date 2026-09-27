@@ -1,6 +1,7 @@
 import { pricing, pricingFomo } from "@/lib/course-data";
 import { getSiteContent } from "@/lib/content";
 import { resolvePricing } from "@/lib/pricing";
+import { resolveActiveCurrency } from "@/lib/payments/provider";
 import { Container } from "./ui/Container";
 import { SectionHeading } from "./ui/SectionHeading";
 import { Reveal } from "./ui/Reveal";
@@ -8,15 +9,40 @@ import { PricingCard } from "./PricingCard";
 import { ChartTexture } from "./visuals/ChartTexture";
 
 /**
+ * Resolves the public price for whichever currency is actually active
+ * (resolveActiveCurrency() — server-side, admin-controlled, never anything
+ * the browser could influence; see lib/payments/provider.ts). Falls back to
+ * the NGN price if the active currency's price hasn't been configured yet
+ * (resolvePricing(currency) throws in that case — see lib/pricing.ts) —
+ * this is a public landing page with no error state to show a visitor, so
+ * an admin switching to USD before setting a USD price must never leave
+ * this section blank or broken; it shows the last-known-good (NGN) price
+ * instead, exactly like resolveActiveCurrency() itself fails closed to NGN
+ * on an unreadable setting. This never happens today: production's active
+ * currency is NGN, which is always configured.
+ */
+async function resolveActivePricing() {
+  const activeCurrency = await resolveActiveCurrency();
+  try {
+    return await resolvePricing(activeCurrency);
+  } catch {
+    return resolvePricing();
+  }
+}
+
+/**
  * Purely visual pass (Final Premium Landing Page Redesign, req. #10): a
  * dark section with a subtle chart texture, matching the reference's
  * "premium pricing" treatment. Every price/discount/countdown value below
- * still comes straight from resolvePricing() — nothing here recomputes or
- * hardcodes any of it, and PricingCard (the actual pricing/checkout logic)
- * is untouched.
+ * still comes straight from resolveActivePricing() — nothing here
+ * recomputes or hardcodes any of it, and PricingCard (the actual
+ * pricing/checkout logic) is untouched. Uses the same
+ * resolveActiveCurrency() + resolvePricing(currency) architecture as
+ * app/get-started/page.tsx, so the public landing page and the signed-in
+ * checkout page always agree on which currency's price is shown.
  */
 export async function PricingSection() {
-  const [pricingState, content] = await Promise.all([resolvePricing(), getSiteContent()]);
+  const [pricingState, content] = await Promise.all([resolveActivePricing(), getSiteContent()]);
 
   return (
     <section id="pricing" className="relative overflow-hidden bg-ink-950 py-20 sm:py-24">

@@ -46,6 +46,27 @@ export async function updatePricingSettingsAction(formData: FormData): Promise<v
   // constraint and lib/pricing.ts's own runtime check).
   if (offerRaw && (offerMinorUnits == null || offerMinorUnits >= regularMinorUnits)) return;
 
+  // USD price fields — added alongside
+  // supabase/migrations/20260927190000_payment_currency.sql. Both optional:
+  // leaving "usd_regular_price" blank means "USD not configured yet" (null),
+  // which lib/pricing.ts's resolvePricing("USD") already treats as a
+  // fail-closed error rather than a guessable amount. Same
+  // never-more-than-regular validation as the NGN pair above, applied
+  // independently — a USD offer price is only ever checked against the USD
+  // regular price, never the NGN one.
+  const usdRegularRaw = String(formData.get("usd_regular_price") || "").trim();
+  const usdRegularMinorUnits = usdRegularRaw ? majorAmountToMinorUnits(usdRegularRaw) : null;
+  if (usdRegularRaw && usdRegularMinorUnits == null) return; // malformed USD regular price — refuse to save
+
+  const usdOfferRaw = String(formData.get("usd_offer_price") || "").trim();
+  const usdOfferMinorUnits = usdOfferRaw ? majorAmountToMinorUnits(usdOfferRaw) : null;
+  if (usdOfferRaw) {
+    if (usdOfferMinorUnits == null) return; // malformed USD offer price
+    // A USD offer price only makes sense once a USD regular price exists,
+    // and must be strictly below it — same rule as the NGN pair.
+    if (usdRegularMinorUnits == null || usdOfferMinorUnits >= usdRegularMinorUnits) return;
+  }
+
   const promotion_active = checkbox(formData, "promotion_active");
   const promotion_title = String(formData.get("promotion_title") || "").trim() || "Special Enrollment Offer";
   const promotion_subtext = String(formData.get("promotion_subtext") || "").trim() || null;
@@ -59,6 +80,8 @@ export async function updatePricingSettingsAction(formData: FormData): Promise<v
       id: 1,
       regular_price_minor_units: regularMinorUnits,
       offer_price_minor_units: offerMinorUnits,
+      usd_regular_price_minor_units: usdRegularMinorUnits,
+      usd_offer_price_minor_units: usdOfferMinorUnits,
       promotion_active,
       promotion_title,
       promotion_subtext,

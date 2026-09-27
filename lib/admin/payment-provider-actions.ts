@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/access";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolvePaymentEnvironment } from "@/lib/payments/provider";
-import type { CheckoutMethod, PaymentProvider } from "@/lib/types";
+import type { CheckoutMethod, Currency, PaymentProvider } from "@/lib/types";
 
 // Same pattern as lib/admin/pricing-actions.ts: the only writer for
 // payment_settings, calls requireAdmin() first, and goes through the
@@ -137,5 +137,48 @@ export async function updateCheckoutMethodSettingsAction(formData: FormData): Pr
   }
 
   revalidatePath("/admin/payment-provider");
+  revalidatePath("/get-started");
+}
+
+// Payment currency (NGN/USD) — added alongside
+// supabase/migrations/20260927190000_payment_currency.sql. A fourth,
+// independent axis from active_provider/local_enabled (above) and
+// crypto_enabled/default_checkout_method (updateCheckoutMethodSettingsAction
+// above): this upsert only ever names active_currency (+ updated_by), so it
+// can never touch any of those three other settings, and none of their own
+// upserts (which never name active_currency) can ever touch this one. Same
+// requireAdmin()-first, service-role-only, current-environment-only pattern
+// as the rest of this file — there is no currency selector on the form
+// either; the environment always comes from resolvePaymentEnvironment().
+export async function updateCurrencySettingsAction(formData: FormData): Promise<void> {
+  const { user: admin } = await requireAdmin();
+
+  const requested = String(formData.get("active_currency") || "");
+  if (requested !== "NGN" && requested !== "USD") {
+    // Not a recognized currency (a tampered form, or no selection) — refuse
+    // to write anything rather than guess. Same defensive pattern as
+    // updatePaymentProviderAction's own provider check above.
+    return;
+  }
+  const active_currency: Currency = requested;
+
+  const environment = resolvePaymentEnvironment();
+
+  const db = createAdminClient();
+  const { error } = await db.from("payment_settings").upsert(
+    {
+      environment,
+      active_currency,
+      updated_by: admin.id,
+    },
+    { onConflict: "environment" }
+  );
+
+  if (error) {
+    throw new Error(`Couldn't update payment currency: ${error.message}`);
+  }
+
+  revalidatePath("/admin/payment-provider");
+  revalidatePath("/admin/pricing");
   revalidatePath("/get-started");
 }

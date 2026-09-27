@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import type { PricingSettingsRow } from "@/lib/types";
+import type { Currency, PricingSettingsRow } from "@/lib/types";
 
 // -----------------------------------------------------------------------
 // THE single source of truth for what a student pays right now.
@@ -38,6 +38,12 @@ const FALLBACK_SETTINGS: PricingSettingsRow = {
   countdown_enabled: true,
   updated_at: new Date(0).toISOString(),
   updated_by: null,
+  // Added alongside supabase/migrations/20260927190000_payment_currency.sql.
+  // Null here too — an unreadable row must fail USD resolution closed
+  // exactly like a genuinely unconfigured USD price does (see
+  // resolvePricing() below), never fall back to some guessed amount.
+  usd_regular_price_minor_units: null,
+  usd_offer_price_minor_units: null,
 };
 
 export async function getPricingSettings(): Promise<PricingSettingsRow> {
@@ -89,41 +95,82 @@ export function formatMinorUnits(minorUnits: number, currency: string): string {
 
 /**
  * A promotion is only ever "active" when ALL of: the admin flag is on, a
- * valid offer price is configured (positive, strictly below the regular
- * price — never a "discount" that charges more), and the current time falls
- * inside the configured start/end window (an unset bound means "no limit on
- * that side", not "always active" — the admin flag still gates it).
+ * valid offer price is configured for THIS currency (positive, strictly
+ * below the regular price for this same currency — never a "discount" that
+ * charges more), and the current time falls inside the configured
+ * start/end window (an unset bound means "no limit on that side", not
+ * "always active" — the admin flag still gates it). The promotion
+ * on/off flag and window are shared across both currencies (one time-boxed
+ * campaign — see supabase/migrations/20260927190000_payment_currency.sql's
+ * file header); only the regular/offer AMOUNTS are currency-specific.
  */
-function isPromotionCurrentlyActive(row: PricingSettingsRow, now: Date): boolean {
+function isPromotionCurrentlyActive(
+  regularPriceMinorUnits: number,
+  offerPriceMinorUnits: number | null,
+  row: Pick<PricingSettingsRow, "promotion_active" | "promotion_starts_at" | "promotion_ends_at">,
+  now: Date
+): boolean {
   if (!row.promotion_active) return false;
-  if (row.offer_price_minor_units == null || row.offer_price_minor_units <= 0) return false;
-  if (row.offer_price_minor_units >= row.regular_price_minor_units) return false;
+  if (offerPriceMinorUnits == null || offerPriceMinorUnits <= 0) return false;
+  if (offerPriceMinorUnits >= regularPriceMinorUnits) return false;
   if (row.promotion_starts_at && now < new Date(row.promotion_starts_at)) return false;
   if (row.promotion_ends_at && now > new Date(row.promotion_ends_at)) return false;
   return true;
 }
 
 /**
- * Resolves the current pricing/promotion state. `now` is only a parameter
- * for testability — every real call site uses the default (the server's
- * actual clock at request time), never a client-supplied time.
+ * Resolves the current pricing/promotion state for `currency`. Defaults to
+ * 'NGN' — every existing call site that doesn't pass a currency (the public
+ * landing page's PricingSection, the admin pricing page's "Right now"
+ * summary) keeps behaving exactly as it did before this function became
+ * currency-aware, since NGN was the only currency that ever existed until
+ * now. `now` is only a parameter for testability — every real call site
+ * uses the default (the server's actual clock at request time), never a
+ * client-supplied time.
+ *
+ * When `currency` is 'USD' and no USD regular price has been configured
+ * (usd_regular_price_minor_units is null — see
+ * supabase/migrations/20260927190000_payment_currency.sql), this THROWS
+ * rather than silently converting the NGN price or falling back to it —
+ * Josh's explicit instruction was that USD must be independently
+ * configurable, never derived from an exchange rate, and a misconfigured
+ * "active currency = USD but no USD price set" admin state must fail
+ * checkout closed rather than charge something nobody actually configured.
+ * Every real call site (lib/payments/checkout-action.ts,
+ * app/get-started/page.tsx) already wraps its resolvePricing() call in a
+ * try/catch that redirects/renders safely on any thrown error — this reuses
+ * that exact same existing fail-closed path rather than adding a new one.
  */
-export async function resolvePricing(now: Date = new Date()): Promise<PricingState> {
+export async function resolvePricing(currency: Currency = "NGN", now: Date = new Date()): Promise<PricingState> {
   const row = await getPricingSettings();
-  const isPromoActive = isPromotionCurrentlyActive(row, now);
-  const payableMinorUnits = isPromoActive ? row.offer_price_minor_units! : row.regular_price_minor_units;
+
+  const regularPriceMinorUnits = currency === "USD" ? row.usd_regular_price_minor_units : row.regular_price_minor_units;
+  const offerPriceMinorUnits = currency === "USD" ? row.usd_offer_price_minor_units : row.offer_price_minor_units;
+
+  if (regularPriceMinorUnits == null) {
+    // Only reachable for currency === "USD" — the NGN column is NOT NULL at
+    // the database level, so regularPriceMinorUnits can never be null when
+    // currency is "NGN" (barring getPricingSettings()'s own FALLBACK_SETTINGS,
+    // which always sets a real NGN amount too).
+    throw new Error(
+      `resolvePricing: no ${currency} price has been configured yet (pricing_settings.${
+        currency === "USD" ? "usd_regular_price_minor_units" : "regular_price_minor_units"
+      } is null). Set it from /admin/pricing before checkout can use ${currency}.`
+    );
+  }
+
+  const isPromoActive = isPromotionCurrentlyActive(regularPriceMinorUnits, offerPriceMinorUnits, row, now);
+  const payableMinorUnits = isPromoActive ? offerPriceMinorUnits! : regularPriceMinorUnits;
 
   const discountPercent = isPromoActive
-    ? Math.round(
-        ((row.regular_price_minor_units - row.offer_price_minor_units!) / row.regular_price_minor_units) * 100
-      )
+    ? Math.round(((regularPriceMinorUnits - offerPriceMinorUnits!) / regularPriceMinorUnits) * 100)
     : null;
-  const savingsMinorUnits = isPromoActive ? row.regular_price_minor_units - row.offer_price_minor_units! : null;
+  const savingsMinorUnits = isPromoActive ? regularPriceMinorUnits - offerPriceMinorUnits! : null;
 
   return {
-    regularPriceMinorUnits: row.regular_price_minor_units,
-    offerPriceMinorUnits: row.offer_price_minor_units,
-    currency: row.currency,
+    regularPriceMinorUnits,
+    offerPriceMinorUnits,
+    currency,
     isPromoActive,
     payableMinorUnits,
     discountPercent,
@@ -132,9 +179,9 @@ export async function resolvePricing(now: Date = new Date()): Promise<PricingSta
     promotionSubtext: row.promotion_subtext,
     endsAt: isPromoActive ? row.promotion_ends_at : null,
     countdownEnabled: isPromoActive && row.countdown_enabled && Boolean(row.promotion_ends_at),
-    regularPriceFormatted: formatMinorUnits(row.regular_price_minor_units, row.currency),
-    offerPriceFormatted: isPromoActive ? formatMinorUnits(row.offer_price_minor_units!, row.currency) : null,
-    payableFormatted: formatMinorUnits(payableMinorUnits, row.currency),
-    savingsFormatted: isPromoActive ? formatMinorUnits(savingsMinorUnits!, row.currency) : null,
+    regularPriceFormatted: formatMinorUnits(regularPriceMinorUnits, currency),
+    offerPriceFormatted: isPromoActive ? formatMinorUnits(offerPriceMinorUnits!, currency) : null,
+    payableFormatted: formatMinorUnits(payableMinorUnits, currency),
+    savingsFormatted: isPromoActive ? formatMinorUnits(savingsMinorUnits!, currency) : null,
   };
 }
