@@ -216,6 +216,11 @@ export interface PaymentSettingsRow {
   // see lib/payments/provider.ts's resolveCheckoutMethodSettings().
   crypto_enabled: boolean;
   default_checkout_method: CheckoutMethod;
+  // Added in supabase/migrations/20260927140054_local_payments_toggle.sql. A
+  // third, independent axis: whether the local rail (whichever provider
+  // active_provider selects) is offered at all. Defaults to true — see that
+  // migration's file header and resolveCheckoutMethodSettings().
+  local_enabled: boolean;
 }
 
 // Rows for the tables added in supabase/migrations/0010_discount_codes.sql.

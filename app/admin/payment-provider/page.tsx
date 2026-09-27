@@ -86,12 +86,61 @@ export default async function AdminPaymentProviderPage({
           Preview each have their own setting, so changing one never changes the other.
         </p>
 
-        <div className="mt-8 rounded-xl border border-ink-100 bg-ink-50 p-5">
+        {/* LOCAL PAYMENTS — groups the Local Payments ON/OFF toggle with the
+            existing Active Provider switcher, per
+            supabase/migrations/20260927140054_local_payments_toggle.sql.
+            Independent of the Crypto Payments section below: turning local
+            on/off never changes active_provider, crypto_enabled, or
+            default_checkout_method, and vice versa. */}
+        <h2 className="mt-8 text-lg font-semibold text-ink-950">Local payments</h2>
+
+        <div className="mt-4 rounded-xl border border-ink-100 bg-ink-50 p-5">
           <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Environment</p>
           <p className="mt-1 text-lg font-semibold text-ink-950">{environmentLabel}</p>
           <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink-500">Active provider</p>
           <p className="mt-1 text-2xl font-semibold text-ink-950">{PROVIDER_LABEL[activeProvider]}</p>
         </div>
+
+        {/* Local Payments ON/OFF. Submits to the same updatePaymentProviderAction
+            that already writes active_provider — the hidden active_provider
+            field below always carries the CURRENT provider forward
+            unchanged, so toggling this checkbox alone never switches
+            Paystack/Korapay. Enforced server-side in
+            lib/payments/checkout-action.ts, not only by hiding this UI. */}
+        <form
+          action={updatePaymentProviderAction}
+          className="mt-4 rounded-xl border border-ink-100 bg-white p-5"
+        >
+          <input type="hidden" name="active_provider" value={activeProvider} />
+          <label className="flex items-center justify-between gap-4">
+            <span>
+              <span className="block text-sm font-medium text-ink-900">Local Payments</span>
+              <span className="block text-xs text-ink-500">
+                {checkoutMethodSettings.localEnabled
+                  ? "On — shown to students at checkout"
+                  : "Off — never shown to students"}
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              name="local_enabled"
+              defaultChecked={checkoutMethodSettings.localEnabled}
+              className="h-5 w-5 accent-brand-600"
+            />
+          </label>
+          {!checkoutMethodSettings.localEnabled && !checkoutMethodSettings.cryptoEnabled ? (
+            <p className="mt-3 text-xs font-medium text-brand-700">
+              Crypto Payments is also off — students will see no payment method and checkout is blocked until one
+              is turned on.
+            </p>
+          ) : null}
+          <button
+            type="submit"
+            className="mt-4 rounded-full bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+          >
+            Save local payments setting
+          </button>
+        </form>
 
         {pendingConfirm && pendingConfirm !== activeProvider ? (
           <div className="mt-6 rounded-xl border border-brand-200 bg-brand-50 p-5">
@@ -102,11 +151,19 @@ export default async function AdminPaymentProviderPage({
               This affects new checkouts in this environment only. {environmentLabel} checkouts will start using{" "}
               {PROVIDER_LABEL[pendingConfirm]} immediately after you confirm. This does not change the other
               environment&apos;s setting, and no existing order is affected — each one keeps the provider it was
-              created with.
+              created with. Your current Local Payments ON/OFF setting is not affected by this switch.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <form action={updatePaymentProviderAction}>
                 <input type="hidden" name="active_provider" value={pendingConfirm} />
+                {/* Carries the current Local Payments setting forward
+                    unchanged — switching the local provider must never also
+                    flip local_enabled. */}
+                <input
+                  type="hidden"
+                  name="local_enabled"
+                  value={checkoutMethodSettings.localEnabled ? "on" : "off"}
+                />
                 <button
                   type="submit"
                   className="rounded-full bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700"

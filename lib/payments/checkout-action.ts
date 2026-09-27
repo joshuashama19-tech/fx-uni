@@ -76,21 +76,57 @@ export async function initializeCheckoutAction(formData: FormData): Promise<void
   // provider) is decided — never from anything the browser sent taken at
   // face value. requestedMethod is read from the form, but only ever acts
   // as a request: it's re-validated against this environment's own
-  // crypto_enabled setting (resolveCheckoutMethodSettings(),
-  // lib/payments/provider.ts) right here, server-side, before it can
-  // influence anything. A tampered payment_method=crypto submission when
-  // crypto is disabled is silently coerced back to "local" — never an
-  // error, never a broken/exposed crypto option. A test account never even
-  // reaches this: it's forced to "local" outright and
+  // crypto_enabled AND local_enabled settings
+  // (resolveCheckoutMethodSettings(), lib/payments/provider.ts) right here,
+  // server-side, before either can influence anything. A test account never
+  // even reaches this: it's forced to "local" outright and
   // resolveCheckoutMethodSettings() (and therefore this environment's
-  // crypto setting) is never consulted for one, mirroring exactly how a
-  // test account already skips resolvePaymentProvider() below.
+  // crypto/local settings) is never consulted for one, mirroring exactly
+  // how a test account already skips resolvePaymentProvider() below.
+  //
+  // Four states, enforced here (never only by hiding a UI card — see
+  // app/get-started/page.tsx for the matching UI gating, and
+  // supabase/migrations/20260927140054_local_payments_toggle.sql for
+  // local_enabled itself):
+  //   - local ON,  crypto ON  -> honor requestedMethod (today's behavior).
+  //   - local ON,  crypto OFF -> always "local" (today's exact behavior,
+  //     unchanged — a tampered payment_method=crypto submission when crypto
+  //     is disabled is silently coerced back to "local").
+  //   - local OFF, crypto ON  -> always "crypto", regardless of what was
+  //     requested or omitted — the only method actually available.
+  //   - local OFF, crypto OFF -> no method available at all; handled
+  //     immediately below by redirecting back to /get-started BEFORE any
+  //     order is created or any provider is called.
   const requestedMethod = String(formData.get("payment_method") || "local");
   const checkoutSettings = isTestAccount
-    ? { cryptoEnabled: false, defaultMethod: "local" as const }
+    ? { cryptoEnabled: false, defaultMethod: "local" as const, localEnabled: true }
     : await resolveCheckoutMethodSettings();
-  const checkoutMethod: CheckoutMethod =
-    !isTestAccount && requestedMethod === "crypto" && checkoutSettings.cryptoEnabled ? "crypto" : "local";
+
+  if (!isTestAccount && !checkoutSettings.localEnabled && !checkoutSettings.cryptoEnabled) {
+    // Neither rail is available in this environment right now. Fail safe:
+    // no order row is inserted, no provider adapter is ever called, and the
+    // student is sent back to /get-started with an explanation rather than
+    // into a broken/half-started checkout. This is the one genuinely new
+    // state introduced by local_enabled — every other branch below
+    // reproduces existing behavior exactly.
+    redirect(
+      `/get-started?error=${encodeURIComponent(
+        "Checkout isn't available right now. Please try again shortly, or contact support."
+      )}`
+    );
+  }
+
+  const checkoutMethod: CheckoutMethod = isTestAccount
+    ? "local"
+    : !checkoutSettings.localEnabled
+      ? // Local is off but the guard above already confirmed crypto is on —
+        // crypto is the only available method, so it's used regardless of
+        // what the form requested (there was no valid local option to
+        // request in the first place).
+        "crypto"
+      : requestedMethod === "crypto" && checkoutSettings.cryptoEnabled
+        ? "crypto"
+        : "local";
 
   const rl = rateLimit(`checkout:${user.id}`, 10, 15 * 60);
   if (!rl.allowed) {

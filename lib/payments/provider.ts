@@ -137,39 +137,59 @@ export async function resolvePaymentProvider(): Promise<PaymentProvider> {
 export interface CheckoutMethodSettings {
   cryptoEnabled: boolean;
   defaultMethod: CheckoutMethod;
+  // Added alongside supabase/migrations/20260927140054_local_payments_toggle.sql.
+  // Whether the local rail (whichever provider active_provider selects) is
+  // offered at all — a third, independent axis from both cryptoEnabled and
+  // resolvePaymentProvider()'s own active_provider value. See that
+  // migration's file header and DEFAULT_CHECKOUT_METHOD_SETTINGS below for
+  // why this one fails closed to true, the opposite of cryptoEnabled.
+  localEnabled: boolean;
 }
 
-// Crypto off, local by default — the same safe value payment_settings'
-// own column defaults to (0014_nowpayments.sql), so an unreadable/missing
-// row behaves identically to a freshly-seeded one that no admin has touched
-// yet: crypto is never accidentally exposed by an outage or a missing row.
-const DEFAULT_CHECKOUT_METHOD_SETTINGS: CheckoutMethodSettings = { cryptoEnabled: false, defaultMethod: "local" };
+// Crypto off, local by default and local ON — the same safe values
+// payment_settings' own columns default to (0014_nowpayments.sql,
+// 20260927140054_local_payments_toggle.sql), so an unreadable/missing row
+// behaves identically to a freshly-seeded one that no admin has touched yet:
+// crypto is never accidentally exposed, and local — the rail that has always
+// been guaranteed available — is never accidentally taken away, by an
+// outage or a missing row.
+const DEFAULT_CHECKOUT_METHOD_SETTINGS: CheckoutMethodSettings = {
+  cryptoEnabled: false,
+  defaultMethod: "local",
+  localEnabled: true,
+};
 
 /**
  * Decides whether Crypto Payment (NOWPayments) is offered at all in this
- * environment, and which payment-method card is preselected — a genuinely
- * separate axis from resolvePaymentProvider() above, which continues to
- * decide only the LOCAL rail (Paystack vs Korapay) and knows nothing about
- * crypto. Called from app/get-started/page.tsx (to render the right
- * card(s) and preselection) and from lib/payments/checkout-action.ts (to
- * re-validate the student's submitted payment_method server-side before
- * deciding a new order's actual provider).
+ * environment, whether the local rail (Paystack/Korapay, whichever
+ * active_provider selects) is offered at all, and which payment-method card
+ * is preselected — genuinely separate axes from resolvePaymentProvider()
+ * above, which continues to decide only WHICH local provider is used and
+ * knows nothing about either on/off setting. Called from
+ * app/get-started/page.tsx (to render the right card(s)/preselection, or the
+ * "checkout unavailable" state when both are off) and from
+ * lib/payments/checkout-action.ts (to re-validate the student's submitted
+ * payment_method server-side before deciding a new order's actual provider,
+ * or to block checkout entirely).
  *
  * Reads the same payment_settings row resolvePaymentProvider() reads (one
  * per PaymentEnvironment, service-role-only), so Preview's and Production's
- * crypto settings are independent of each other exactly like their
- * active_provider settings already are. Fails closed to
- * DEFAULT_CHECKOUT_METHOD_SETTINGS on any error, a missing row, or an
- * unrecognized environment — same fail-closed philosophy as
- * resolvePaymentProvider(): an outage must never accidentally expose or
- * default to crypto.
+ * settings are independent of each other exactly like their active_provider
+ * settings already are. Fails closed to DEFAULT_CHECKOUT_METHOD_SETTINGS on
+ * any error, a missing row, or an unrecognized environment — same
+ * fail-closed philosophy as resolvePaymentProvider(): an outage must never
+ * accidentally expose/default to crypto, and must never accidentally take
+ * away local, the rail that has always worked.
  *
  * Callers are responsible for applying the "crypto disabled overrides a
  * crypto default" fallback (effective default = defaultMethod === "crypto"
  * && cryptoEnabled ? "crypto" : "local") — kept here as raw settings rather
  * than pre-resolved, so both call sites can share the exact same one-line
  * rule instead of this function baking in an implicit second layer of
- * fallback logic.
+ * fallback logic. Callers are likewise responsible for the "both off"
+ * checkout-blocking behavior (!localEnabled && !cryptoEnabled) — this
+ * function only ever reports the two independent settings, never decides
+ * what to do about their combination.
  */
 export async function resolveCheckoutMethodSettings(): Promise<CheckoutMethodSettings> {
   if (!isRecognizedPaymentEnvironment()) {
@@ -192,6 +212,12 @@ export async function resolveCheckoutMethodSettings(): Promise<CheckoutMethodSet
     return {
       cryptoEnabled: data.crypto_enabled === true,
       defaultMethod: data.default_checkout_method === "crypto" ? "crypto" : "local",
+      // Fails closed to true (never false) — only an explicit `false` in
+      // the row disables local. A row that predates this column reading as
+      // undefined/null (should not happen once the migration backfills
+      // every existing row via its NOT NULL DEFAULT true, but defended here
+      // anyway) must never be read as "local disabled".
+      localEnabled: data.local_enabled !== false,
     };
   } catch {
     return DEFAULT_CHECKOUT_METHOD_SETTINGS;

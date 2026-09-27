@@ -46,6 +46,22 @@ export async function updatePaymentProviderAction(formData: FormData): Promise<v
   }
   const active_provider: PaymentProvider = requested;
 
+  // Local Payments ON/OFF — grouped with Active Provider in the admin UI
+  // (see supabase/migrations/20260927140054_local_payments_toggle.sql), and
+  // written by this same action for the same reason active_provider is: an
+  // independent, admin-only, per-environment setting on payment_settings.
+  // Both forms that post here (app/admin/payment-provider/page.tsx's
+  // provider-switch confirmation form and its separate Local Payments
+  // toggle form) always include this field — the provider-switch form
+  // carries the CURRENT local_enabled value forward unchanged (switching
+  // Paystack/Korapay must never flip this), and the toggle form carries the
+  // admin's new choice. That lets this upsert always name local_enabled
+  // explicitly and correctly, while still never naming
+  // crypto_enabled/default_checkout_method — those remain
+  // updateCheckoutMethodSettingsAction's own columns below, untouched here,
+  // exactly as active_provider is never touched by that action.
+  const local_enabled = formData.get("local_enabled") === "on";
+
   const environment = resolvePaymentEnvironment();
 
   const db = createAdminClient();
@@ -53,6 +69,7 @@ export async function updatePaymentProviderAction(formData: FormData): Promise<v
     {
       environment,
       active_provider,
+      local_enabled,
       updated_by: admin.id,
     },
     { onConflict: "environment" }
@@ -68,7 +85,7 @@ export async function updatePaymentProviderAction(formData: FormData): Promise<v
     // provider real money moves through, that's not an acceptable failure
     // mode. requireAdmin() above is untouched; this only guards the write
     // itself.
-    throw new Error(`Couldn't switch the active payment provider: ${error.message}`);
+    throw new Error(`Couldn't update local payment settings: ${error.message}`);
   }
 
   revalidatePath("/admin/payment-provider");

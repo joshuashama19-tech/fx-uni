@@ -80,6 +80,13 @@ export default async function GetStartedPage({
   // is only ever resolved for a signed-in, non-test user — see
   // lib/payments/checkout-action.ts's identical isTestAccount short-circuit.
   let cryptoEnabled = false;
+  // Fails closed to true, mirroring resolveCheckoutMethodSettings()'s own
+  // fail-closed default — local has always been the guaranteed-available
+  // rail, so a signed-out visitor or a test account (neither of which ever
+  // calls that resolver) sees the same safe assumption a real,
+  // non-test-account checkout would fall back to on an unreadable/missing
+  // row. See supabase/migrations/20260927140054_local_payments_toggle.sql.
+  let localEnabled = true;
   let effectiveDefaultMethod: CheckoutMethod = "local";
   if (user) {
     const { data: profile } = await supabase
@@ -92,6 +99,7 @@ export default async function GetStartedPage({
     if (!isTestAccount) {
       const checkoutSettings = await resolveCheckoutMethodSettings();
       cryptoEnabled = checkoutSettings.cryptoEnabled;
+      localEnabled = checkoutSettings.localEnabled;
       // The required fallback: a default of "crypto" while crypto is
       // disabled must never preselect (or expose) a broken option — it
       // silently becomes "local" instead. See
@@ -174,6 +182,7 @@ export default async function GetStartedPage({
               discountPreview={discountPreview}
               paymentProvider={paymentProvider}
               cryptoEnabled={cryptoEnabled}
+              localEnabled={localEnabled}
               effectiveDefaultMethod={effectiveDefaultMethod}
             />
           ) : (
@@ -240,6 +249,7 @@ function CheckoutPanel({
   discountPreview,
   paymentProvider,
   cryptoEnabled,
+  localEnabled,
   effectiveDefaultMethod,
 }: {
   email: string;
@@ -248,8 +258,17 @@ function CheckoutPanel({
   discountPreview: DiscountPreview | null;
   paymentProvider: PaymentProvider;
   cryptoEnabled: boolean;
+  localEnabled: boolean;
   effectiveDefaultMethod: CheckoutMethod;
 }) {
+  // A test account always goes straight to the in-app simulated checkout
+  // (see the paymentProvider === "test" branch further down) and never
+  // reaches either on/off setting — checkoutBlocked only ever applies to a
+  // real, non-test checkout. Mirrors the exact guard added server-side in
+  // lib/payments/checkout-action.ts; kept here too so the UI never shows a
+  // submit button that server action would refuse anyway.
+  const checkoutBlocked = paymentProvider !== "test" && !localEnabled && !cryptoEnabled;
+
   return (
     <div>
       {/* Account context — who's buying. Kept compact/muted so it doesn't
@@ -334,58 +353,86 @@ function CheckoutPanel({
           Secure payment via {PAYMENT_PROVIDER_DISPLAY_NAME[paymentProvider]}.
         </p>
       ) : null}
-      <form action={initializeCheckoutAction}>
-        {discountPreview ? <input type="hidden" name="discount_code" value={discountPreview.code} /> : null}
 
-        {paymentProvider !== "test" ? (
-          <div className="mb-4 space-y-2">
-            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-ink-200 p-3.5 has-[:checked]:border-brand-600 has-[:checked]:bg-brand-50">
-              <input
-                type="radio"
-                name="payment_method"
-                value="local"
-                defaultChecked={effectiveDefaultMethod === "local"}
-                className="mt-0.5"
-              />
-              <span>
-                <span className="block text-sm font-semibold text-ink-900">Secure Online Payment</span>
-                <span className="block text-xs text-ink-500">Pay securely online</span>
-              </span>
-            </label>
+      {checkoutBlocked ? (
+        // Neither payment method is available in this environment right
+        // now (an admin has turned both Local Payments and Crypto Payments
+        // off — see app/admin/payment-provider/page.tsx). No form is
+        // rendered at all here: there is no submit button that could create
+        // an order, matching the guard
+        // lib/payments/checkout-action.ts enforces server-side regardless
+        // of what any request sends. This is not reachable for a test
+        // account (see checkoutBlocked's own definition above).
+        <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 text-center">
+          <p className="text-sm font-semibold text-brand-700">Checkout isn&apos;t available right now</p>
+          <p className="mt-1 text-sm text-brand-700">
+            Please try again shortly, or contact support if this continues.
+          </p>
+        </div>
+      ) : (
+        <form action={initializeCheckoutAction}>
+          {discountPreview ? <input type="hidden" name="discount_code" value={discountPreview.code} /> : null}
 
-            {/* Only ever rendered when the admin has crypto turned on for
-                this environment — never shown disabled, never a broken
-                option a student could pick. See
-                lib/payments/provider.ts's resolveCheckoutMethodSettings(). */}
-            {cryptoEnabled ? (
-              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-ink-200 p-3.5 has-[:checked]:border-brand-600 has-[:checked]:bg-brand-50">
-                <input
-                  type="radio"
-                  name="payment_method"
-                  value="crypto"
-                  defaultChecked={effectiveDefaultMethod === "crypto"}
-                  className="mt-0.5"
-                />
-                <span>
-                  <span className="block text-sm font-semibold text-ink-900">Crypto Payment</span>
-                  <span className="block text-xs text-ink-500">Pay securely with cryptocurrency</span>
-                </span>
-              </label>
-            ) : null}
-          </div>
-        ) : null}
+          {paymentProvider !== "test" ? (
+            <div className="mb-4 space-y-2">
+              {/* Only ever rendered when the admin has Local Payments
+                  turned on for this environment — never shown disabled,
+                  never a broken option a student could pick. See
+                  lib/payments/provider.ts's
+                  resolveCheckoutMethodSettings() and
+                  supabase/migrations/20260927140054_local_payments_toggle.sql. */}
+              {localEnabled ? (
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-ink-200 p-3.5 has-[:checked]:border-brand-600 has-[:checked]:bg-brand-50">
+                  <input
+                    type="radio"
+                    name="payment_method"
+                    value="local"
+                    defaultChecked={effectiveDefaultMethod === "local"}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-ink-900">Secure Online Payment</span>
+                    <span className="block text-xs text-ink-500">Pay securely online</span>
+                  </span>
+                </label>
+              ) : null}
 
-        <button
-          type="submit"
-          className="group inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand-600 px-6 py-3.5 text-base font-semibold text-white shadow-glow transition-all duration-200 hover:-translate-y-0.5 hover:bg-brand-700 active:translate-y-0"
-        >
-          Continue to secure payment
-          <IconArrowRight className="h-4 w-4" />
-        </button>
-      </form>
+              {/* Only ever rendered when the admin has crypto turned on for
+                  this environment — never shown disabled, never a broken
+                  option a student could pick. See
+                  lib/payments/provider.ts's resolveCheckoutMethodSettings(). */}
+              {cryptoEnabled ? (
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-ink-200 p-3.5 has-[:checked]:border-brand-600 has-[:checked]:bg-brand-50">
+                  <input
+                    type="radio"
+                    name="payment_method"
+                    value="crypto"
+                    defaultChecked={effectiveDefaultMethod === "crypto"}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-ink-900">Crypto Payment</span>
+                    <span className="block text-xs text-ink-500">Pay securely with cryptocurrency</span>
+                  </span>
+                </label>
+              ) : null}
+            </div>
+          ) : null}
+
+          <button
+            type="submit"
+            className="group inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand-600 px-6 py-3.5 text-base font-semibold text-white shadow-glow transition-all duration-200 hover:-translate-y-0.5 hover:bg-brand-700 active:translate-y-0"
+          >
+            Continue to secure payment
+            <IconArrowRight className="h-4 w-4" />
+          </button>
+        </form>
+      )}
 
       {/* What happens after successful payment. */}
-      <p className="mt-3 text-center text-xs text-ink-500">Access unlocks automatically once payment is confirmed.</p>
+      {!checkoutBlocked ? (
+        <p className="mt-3 text-center text-xs text-ink-500">Access unlocks automatically once payment is confirmed.</p>
+      ) : null}
 
       <p className="mt-4 text-center">
         <Link href="/account" className="text-sm text-ink-500 underline underline-offset-2 hover:text-ink-800">
