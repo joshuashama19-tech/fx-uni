@@ -1,3 +1,6 @@
+import { getCourseId } from "@/lib/access";
+import { siteConfig } from "@/lib/course-data";
+import { ViewContentTracker } from "@/components/analytics/ViewContentTracker";
 import { Hero } from "@/components/Hero";
 import { TrustSection } from "@/components/TrustSection";
 import { SocialProofSection } from "@/components/SocialProofSection";
@@ -79,6 +82,7 @@ import { FinalCtaSection } from "@/components/FinalCtaSection";
 export default function CoursePage() {
   return (
     <>
+      <ViewContentTracker courseId={getCourseId()} contentName={`${siteConfig.name} — full course`} />
       <Hero />
       <TrustSection />
       <SocialProofSection />

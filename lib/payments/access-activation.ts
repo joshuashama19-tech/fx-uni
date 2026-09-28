@@ -6,6 +6,8 @@ import { verifyCharge as verifyTestCharge } from "@/lib/payments/test-provider";
 import { verifyNowPaymentsPayment, NOWPAYMENTS_NONTERMINAL_STATUSES } from "@/lib/payments/nowpayments";
 import { getCourseId } from "@/lib/access";
 import { redeemDiscountCode } from "@/lib/discounts";
+import { sendPurchaseEvent } from "@/lib/analytics/meta-capi";
+import { siteConfig } from "@/lib/course-data";
 import type { OrderRow, OrderStatus, PaymentProvider, ProfileRow } from "@/lib/types";
 
 // The single place that turns a payment signal into an actual state change
@@ -91,6 +93,17 @@ interface ConfirmResult {
     // lib/payments/nowpayments.ts.
     | "pending_confirmation";
   orderId?: string;
+  // Only populated when outcome === "granted" — this order's own
+  // authoritative amount/currency/reference/is_test, for the browser-side
+  // Purchase pixel call (see components/analytics/PurchaseTracker.tsx,
+  // mounted from app/get-started/verify/page.tsx's "granted" branch) —
+  // never a hardcoded or separately re-resolved value. Omitted for every
+  // other outcome (including "already_processed", which redirects silently
+  // with no render — see that page — so it never needs these).
+  amountMinorUnits?: number;
+  currency?: string;
+  reference?: string;
+  isTest?: boolean;
 }
 
 export async function confirmSuccessfulPayment(params: {
@@ -98,6 +111,18 @@ export async function confirmSuccessfulPayment(params: {
   source: PaymentSource;
   eventType?: string; // the Paystack event name when called from the webhook, e.g. "charge.success"
   rawPayload?: unknown;
+  // Only ever passed by the return-page call site (app/get-started/verify/page.tsx),
+  // which has real request context for the student's own browser (cookies/
+  // headers). Every webhook route omits this entirely — a payment
+  // provider's own server, not the student's browser, made that request —
+  // see lib/analytics/meta-capi.ts's SendPurchaseEventParams doc comment for
+  // why that asymmetry is captured honestly rather than faked.
+  browserSignals?: {
+    fbp?: string;
+    fbc?: string;
+    clientIp?: string;
+    userAgent?: string;
+  };
 }): Promise<ConfirmResult> {
   const admin = createAdminClient();
   const dedupeKey = `${params.source}:${params.eventType ?? "verify"}:${params.reference}`;
@@ -242,7 +267,99 @@ export async function confirmSuccessfulPayment(params: {
     });
   }
 
-  return { outcome: "granted", orderId: order.id };
+  // Server-side Meta Conversions API Purchase — fires at most once per real
+  // order, ever, regardless of whether the webhook path or the return-page
+  // path reaches this point first (both legitimately can, for the same
+  // order — see this file's own header comment on why webhook and return
+  // have independent dedupe keys). See maybeSendPurchaseCapiEvent()'s own
+  // doc comment for the independent idempotency gate that makes this safe.
+  // Never blocks or fails this function — any error inside is caught and
+  // logged internally, never thrown.
+  await maybeSendPurchaseCapiEvent(admin, order, params.browserSignals);
+
+  return {
+    outcome: "granted",
+    orderId: order.id,
+    amountMinorUnits: order.amount_minor_units,
+    currency: order.currency,
+    reference: order.paystack_reference,
+    isTest: order.is_test,
+  };
+}
+
+/**
+ * Sends the server-side Meta Conversions API Purchase event for a
+ * successful, non-test order — at most once per order, ever, regardless of
+ * how many times confirmSuccessfulPayment() itself reaches this point for
+ * the same order (the webhook path and the return-page path each have their
+ * own independent payment_events dedupe key — see this file's header
+ * comment — so BOTH legitimately reach here for a single real sale). Reuses
+ * the exact same logPaymentEvent() unique-dedupe-key mechanism as every
+ * other idempotency check in this file, under a key namespaced separately
+ * from the (source, eventType, reference) keys used above
+ * ("capi_purchase:<reference>"), so this is a genuinely independent gate —
+ * whichever call site (webhook or return) wins the insert race is the one
+ * that actually sends the event; the other sees `false` and returns
+ * immediately, without ever calling out to Meta.
+ *
+ * event_id is order.paystack_reference — the SAME value the browser-side
+ * Purchase pixel call uses (see components/analytics/PurchaseTracker.tsx,
+ * mounted only from the "granted" branch of app/get-started/verify/page.tsx)
+ * — this is what lets Meta deduplicate the browser and server events into a
+ * single reported conversion.
+ *
+ * Test orders (order.is_test) are never sent — this app's Test Mode is a
+ * fully simulated checkout with no real transaction behind it, and must
+ * never be reported to Meta as a real conversion (see
+ * supabase/migrations/0013_test_mode.sql). Any failure past this point
+ * (fetching the profile's email, or sendPurchaseEvent() itself) is caught
+ * and logged, never thrown — access has already been granted by the time
+ * this runs, and a Meta API/config problem must never retroactively affect
+ * that.
+ */
+async function maybeSendPurchaseCapiEvent(
+  admin: ReturnType<typeof createAdminClient>,
+  order: OrderRow,
+  browserSignals?: {
+    fbp?: string;
+    fbc?: string;
+    clientIp?: string;
+    userAgent?: string;
+  }
+): Promise<void> {
+  if (order.is_test) return;
+
+  const shouldSend = await logPaymentEvent(admin, {
+    dedupeKey: `capi_purchase:${order.paystack_reference}`,
+    orderId: order.id,
+    reference: order.paystack_reference,
+    eventType: "capi_purchase",
+    status: "attempted",
+    rawPayload: {},
+    isTest: false,
+  });
+  if (!shouldSend) return;
+
+  try {
+    const { data: profile } = await admin
+      .from("profiles")
+      .select("email")
+      .eq("id", order.user_id)
+      .maybeSingle<Pick<ProfileRow, "email">>();
+
+    await sendPurchaseEvent({
+      eventId: order.paystack_reference,
+      email: profile?.email ?? null,
+      amountMinorUnits: order.amount_minor_units,
+      currency: order.currency,
+      eventSourceUrl: `${(process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "")}/get-started/verify`,
+      contentName: `${siteConfig.name} — full course`,
+      contentIds: [getCourseId()],
+      browserSignals,
+    });
+  } catch (err) {
+    console.error("[meta-capi] Purchase event send failed", order.paystack_reference, err);
+  }
 }
 
 export async function handlePaystackRefundOrDispute(params: {

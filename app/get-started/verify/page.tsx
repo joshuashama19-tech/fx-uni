@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { cookies, headers } from "next/headers";
 import { confirmSuccessfulPayment } from "@/lib/payments/access-activation";
+import { getCourseId } from "@/lib/access";
 import { Container } from "@/components/ui/Container";
 import { IconAlert, IconCheckCircle, IconClock } from "@/components/icons";
 import { siteConfig } from "@/lib/course-data";
+import { PurchaseTracker } from "@/components/analytics/PurchaseTracker";
 
 export const metadata: Metadata = { title: "Confirming Payment" };
 
@@ -25,10 +28,25 @@ export default async function VerifyPaymentPage({
     redirect(`/get-started?error=${encodeURIComponent("Missing payment reference. Please try checking out again.")}`);
   }
 
-  let outcome: Awaited<ReturnType<typeof confirmSuccessfulPayment>>["outcome"];
+  let result: Awaited<ReturnType<typeof confirmSuccessfulPayment>>;
   try {
-    const result = await confirmSuccessfulPayment({ reference, source: "return" });
-    outcome = result.outcome;
+    // Browser signals for the Meta Conversions API Purchase call — only
+    // ever available here (the student's own browser hit this URL), never
+    // on the webhook path (see lib/payments/access-activation.ts's
+    // confirmSuccessfulPayment() doc comment on this param and
+    // lib/analytics/meta-capi.ts's SendPurchaseEventParams). Read
+    // defensively: an absent _fbp/_fbc cookie (Pixel never loaded, ad
+    // blocker, etc.) or header just means that field is omitted from the
+    // eventual CAPI call, never an error here.
+    const cookieStore = await cookies();
+    const headerList = await headers();
+    const browserSignals = {
+      fbp: cookieStore.get("_fbp")?.value,
+      fbc: cookieStore.get("_fbc")?.value,
+      clientIp: headerList.get("x-forwarded-for")?.split(",")[0]?.trim(),
+      userAgent: headerList.get("user-agent") ?? undefined,
+    };
+    result = await confirmSuccessfulPayment({ reference, source: "return", browserSignals });
   } catch (err) {
     // Previously silent: confirmSuccessfulPayment() throws here whenever the
     // provider's own verify call itself fails (network error, non-2xx
@@ -52,11 +70,57 @@ export default async function VerifyPaymentPage({
     );
   }
 
-  if (outcome === "granted" || outcome === "already_processed") {
+  if (result.outcome === "already_processed") {
+    // A repeat hit for an order this function already finished processing
+    // (e.g. the student's browser reloaded this page, or both the webhook
+    // and the return-page path reached "granted" for the same order and
+    // this is the second one to arrive) — access is already correct, and
+    // the Purchase pixel/CAPI pair already fired (at most once — see
+    // maybeSendPurchaseCapiEvent()) the first time. Redirect silently, no
+    // second render, no second browser Purchase call.
     redirect("/learn?welcome=1");
   }
 
-  if (outcome === "pending_confirmation") {
+  if (result.outcome === "granted") {
+    if (
+      result.isTest ||
+      result.amountMinorUnits == null ||
+      !result.currency ||
+      !result.reference
+    ) {
+      // Test-mode order, or (defensively) a granted result missing the
+      // fields PurchaseTracker needs — never fire a browser Purchase event
+      // for a simulated/test transaction, and never crash the success path
+      // on an unexpected shape. Same destination either way.
+      redirect("/learn?welcome=1");
+    }
+
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-ink-950 px-5 py-16">
+        <Container className="max-w-md">
+          <div className="rounded-2xl bg-white p-8 text-center shadow-xl">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-ink-50 text-ink-700">
+              <IconCheckCircle className="h-6 w-6" />
+            </div>
+            <h1 className="mt-4 text-xl font-semibold text-ink-950">Payment confirmed</h1>
+            <p className="mt-2 text-sm leading-relaxed text-ink-600">
+              You&apos;re all set — taking you to your course now.
+            </p>
+          </div>
+        </Container>
+        <PurchaseTracker
+          reference={result.reference}
+          valueMajorUnits={result.amountMinorUnits / 100}
+          currency={result.currency}
+          contentName={`${siteConfig.name} — full course`}
+          contentId={getCourseId()}
+          redirectTo="/learn?welcome=1"
+        />
+      </main>
+    );
+  }
+
+  if (result.outcome === "pending_confirmation") {
     // NOWPayments-only: the payment is still waiting/confirming/confirmed/
     // sending on the blockchain — never treated as granted (see the
     // non-terminal-status check in confirmSuccessfulPayment(),
@@ -74,7 +138,7 @@ export default async function VerifyPaymentPage({
     );
   }
 
-  if (outcome === "verification_failed") {
+  if (result.outcome === "verification_failed") {
     return (
       <StatusPage
         tone="warning"
@@ -86,7 +150,7 @@ export default async function VerifyPaymentPage({
     );
   }
 
-  if (outcome === "mismatch") {
+  if (result.outcome === "mismatch") {
     return (
       <StatusPage
         tone="warning"

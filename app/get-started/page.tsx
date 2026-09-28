@@ -3,8 +3,9 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { checkCourseAccess } from "@/lib/access";
+import { checkCourseAccess, getCourseId } from "@/lib/access";
 import { signInAction } from "@/lib/auth/actions";
+import { InitiateCheckoutTracker } from "@/components/analytics/InitiateCheckoutTracker";
 import { initializeCheckoutAction, applyDiscountCodeAction } from "@/lib/payments/checkout-action";
 import {
   resolvePaymentProvider,
@@ -56,6 +57,12 @@ interface DiscountPreview {
   code: string;
   discountAmountFormatted: string;
   payableFormatted: string;
+  // Added for InitiateCheckoutTracker below — the real numeric amount the
+  // checkout form is about to submit when a discount is applied, so that
+  // pixel call reflects the actual discounted total rather than the
+  // pre-discount price. formatMinorUnits()'s own formatted strings above
+  // are display-only and not parseable back into a number.
+  payableMinorUnits: number;
 }
 
 export default async function GetStartedPage({
@@ -162,6 +169,7 @@ export default async function GetStartedPage({
         code: validation.discount.code,
         discountAmountFormatted: formatMinorUnits(validation.discountAmountMinorUnits, pricingState.currency),
         payableFormatted: formatMinorUnits(validation.finalAmountMinorUnits, pricingState.currency),
+        payableMinorUnits: validation.finalAmountMinorUnits,
       };
     }
     // An invalid code in the query string (expired since it was applied,
@@ -439,7 +447,7 @@ function CheckoutPanel({
           </p>
         </div>
       ) : (
-        <form action={initializeCheckoutAction}>
+        <form id="checkout-form" action={initializeCheckoutAction}>
           {discountPreview ? <input type="hidden" name="discount_code" value={discountPreview.code} /> : null}
 
           {paymentProvider !== "test" ? (
@@ -497,6 +505,22 @@ function CheckoutPanel({
           </button>
         </form>
       )}
+
+      {/* Browser-only InitiateCheckout tracking — attaches to the form
+          above by id, never wraps or intercepts its submit. See the
+          component's own doc comment. Not rendered at all when the form
+          itself isn't (checkoutBlocked) — nothing to attach to. Uses the
+          same discounted-or-not payable amount the form is about to
+          submit, not the pre-discount regular price. */}
+      {!checkoutBlocked ? (
+        <InitiateCheckoutTracker
+          formId="checkout-form"
+          valueMajorUnits={(discountPreview ? discountPreview.payableMinorUnits : pricing.payableMinorUnits) / 100}
+          currency={pricing.currency}
+          contentName={`${siteConfig.name} — full course`}
+          contentId={getCourseId()}
+        />
+      ) : null}
 
       {/* What happens after successful payment. */}
       {!checkoutBlocked ? (
