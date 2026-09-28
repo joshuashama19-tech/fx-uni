@@ -85,6 +85,16 @@ export function formatMinorUnits(minorUnits: number, currency: string): string {
     return new Intl.NumberFormat("en-NG", {
       style: "currency",
       currency,
+      // "en-NG"'s default currencyDisplay ("symbol") renders USD as the
+      // disambiguated "US$" — CLDR's usual treatment for a dollar currency
+      // that isn't the locale's own (the same reason en-US shows CAD as
+      // "CA$"). NGN is unaffected either way since ₦ has no such alternate
+      // form. "narrowSymbol" is the standard Intl option for exactly this:
+      // it drops the disambiguating prefix and renders the bare symbol
+      // ("$30"/"$65") — display only, does not touch the numeric amount,
+      // the currency code stored/resolved anywhere, or NGN's own "₦"
+      // formatting (verified: NGN output is byte-identical either way).
+      currencyDisplay: "narrowSymbol",
       maximumFractionDigits: majorUnits % 1 === 0 ? 0 : 2,
     }).format(majorUnits);
   } catch {
