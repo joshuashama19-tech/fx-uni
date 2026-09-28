@@ -25,6 +25,24 @@
 // updating: script-src would need `https://js.paystack.co`, frame-src
 // would need `https://checkout.paystack.com`, and connect-src would need
 // `https://api.paystack.co`. Not needed today — not added today.
+//
+// Meta Pixel (app/layout.tsx) is the one deliberate exception to the
+// "zero third-party network calls" invariant above — added alongside this
+// comment. script-src does NOT need widening for it: the base snippet is
+// loaded as a nonced <Script>, and 'strict-dynamic' (already present below)
+// trusts whatever further <script> tags a nonced script inserts — which is
+// exactly how the Pixel snippet loads connect.facebook.net/.../fbevents.js,
+// with no host-based allowlist entry needed in script-src for it.
+// connect-src and img-src are a different story: 'strict-dynamic' has no
+// effect on either of them. fbq()'s actual tracking calls are real
+// fetch/beacon requests to https://www.facebook.com/tr (governed by
+// connect-src), and the <noscript> fallback is a plain <img
+// src="https://www.facebook.com/tr?...">  (governed by img-src) — both
+// would be silently blocked, with the Pixel loading successfully but every
+// event vanishing, without https://www.facebook.com in each. Verified
+// empirically (not just asserted) with a standalone CSP test harness
+// reproducing this exact policy string before this was added — see the
+// implementation notes for this change.
 
 /**
  * Builds the Content-Security-Policy header value for one request.
@@ -54,10 +72,14 @@ export function buildContentSecurityPolicy(nonce: string, isProduction: boolean)
       ["'self'", `'nonce-${nonce}'`, "'strict-dynamic'", ...(isProduction ? [] : ["'unsafe-eval'"])],
     ],
     ["style-src", ["'self'", "'unsafe-inline'"]],
-    ["img-src", ["'self'", "data:"]],
+    // https://www.facebook.com is for the Meta Pixel <noscript> fallback
+    // <img> (app/layout.tsx) — see file header.
+    ["img-src", ["'self'", "data:", "https://www.facebook.com"]],
     ["font-src", ["'self'", "data:"]],
-    // Nothing here needs to be reachable — see file header.
-    ["connect-src", ["'self'"]],
+    // https://www.facebook.com is for the Meta Pixel's actual tracking
+    // calls (fbq() beacons to https://www.facebook.com/tr) — see file
+    // header. Everything else here still needs nothing reachable.
+    ["connect-src", ["'self'", "https://www.facebook.com"]],
     // Nothing on this site embeds a frame; the PDF in particular must
     // never be reachable this way (see check-pdf-not-exposed.mjs).
     ["frame-src", ["'none'"]],
